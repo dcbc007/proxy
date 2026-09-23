@@ -78,11 +78,11 @@ jobs:
           rev = "dcd2a32588649cd7942673804a494b4076d60ee0"
           s = s.replace(
               '["go", "install", "golang.org/x/mobile/cmd/gomobile@latest"]',
-              '["go", "install", f"golang.org/x/mobile/cmd/gomobile@{rev}"]',
+              '["go", "install", "golang.org/x/mobile/cmd/gomobile@' + rev + '"]',
           )
           s = s.replace(
               '["go", "get", "golang.org/x/mobile/cmd/gomobile"]',
-              '["go", "get", f"golang.org/x/mobile/cmd/gomobile@{rev}"]',
+              '["go", "get", "golang.org/x/mobile/cmd/gomobile@' + rev + '"]',
           )
           p.write_text(s, encoding="utf-8")
           PY
