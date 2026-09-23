@@ -14,7 +14,7 @@ if manifest.exists():
 kts = root / 'android/app/build.gradle.kts'
 if kts.exists():
     s = kts.read_text()
-    s = re.sub(r'minSdk\s*=\s*flutter\.minSdkVersion', 'minSdk = 23', s)
+    s = re.sub(r'minSdk\s*=\s*flutter\.minSdkVersion', 'minSdk = 24', s)
     if 'multiDexEnabled = true' not in s:
         s = s.replace('defaultConfig {', 'defaultConfig {\n        multiDexEnabled = true', 1)
     if 'useLegacyPackaging = true' not in s:
@@ -28,7 +28,7 @@ if kts.exists():
 groovy = root / 'android/app/build.gradle'
 if groovy.exists():
     s = groovy.read_text()
-    s = re.sub(r'minSdkVersion\s+flutter\.minSdkVersion', 'minSdkVersion 23', s)
+    s = re.sub(r'minSdkVersion\s+flutter\.minSdkVersion', 'minSdkVersion 24', s)
     if 'multiDexEnabled true' not in s:
         s = s.replace('defaultConfig {', 'defaultConfig {\n        multiDexEnabled true', 1)
     if 'useLegacyPackaging = true' not in s:
