@@ -32,7 +32,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.25.x"
+          go-version: "1.27.1"
           cache: false
 
       - name: Install build dependencies
@@ -71,21 +71,6 @@ jobs:
         run: |
           rm -rf third_party/libXray
           git clone --depth 1 --branch v26.1.23 https://github.com/XTLS/libXray.git third_party/libXray
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path("third_party/libXray/build/app/build.py")
-          s = p.read_text(encoding="utf-8")
-          rev = "dcd2a32588649cd7942673804a494b4076d60ee0"
-          s = s.replace(
-              '["go", "install", "golang.org/x/mobile/cmd/gomobile@latest"]',
-              '["go", "install", "golang.org/x/mobile/cmd/gomobile@' + rev + '"]',
-          )
-          s = s.replace(
-              '["go", "get", "golang.org/x/mobile/cmd/gomobile"]',
-              '["go", "get", "golang.org/x/mobile/cmd/gomobile@' + rev + '"]',
-          )
-          p.write_text(s, encoding="utf-8")
-          PY
 
       - name: Build Android Xray TUN bridge
         shell: bash
