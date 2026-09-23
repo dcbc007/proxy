@@ -17,9 +17,6 @@ if kts.exists():
     s = re.sub(r'minSdk\s*=\s*flutter\.minSdkVersion', 'minSdk = 24', s)
     if 'multiDexEnabled = true' not in s:
         s = s.replace('defaultConfig {', 'defaultConfig {\n        multiDexEnabled = true', 1)
-    if 'useLegacyPackaging = true' not in s:
-        block = 'android {\n    packagingOptions {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }'
-        s = s.replace('android {', block, 1)
     if 'implementation(fileTree' not in s:
         s += '\n\ndependencies {\n    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))\n}\n'
     kts.write_text(s)
@@ -31,9 +28,6 @@ if groovy.exists():
     s = re.sub(r'minSdkVersion\s+flutter\.minSdkVersion', 'minSdkVersion 24', s)
     if 'multiDexEnabled true' not in s:
         s = s.replace('defaultConfig {', 'defaultConfig {\n        multiDexEnabled true', 1)
-    if 'useLegacyPackaging = true' not in s:
-        block = 'android {\n    packagingOptions {\n        jniLibs {\n            useLegacyPackaging true\n        }\n    }'
-        s = s.replace('android {', block, 1)
     if "implementation fileTree(dir: 'libs'" not in s:
         s += "\n\ndependencies {\n    implementation fileTree(dir: 'libs', include: ['*.aar'])\n}\n"
     groovy.write_text(s)
