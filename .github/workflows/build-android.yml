@@ -71,7 +71,7 @@ jobs:
         run: |
           bash third_party/v2box/example/scripts/build_android_libxray.sh \
             --project-root "$GITHUB_WORKSPACE" \
-            --libxray-ref v26.3.27 \
+            --libxray-ref v26.1.23 \
             --android-abis arm64-v8a
 
       - name: Build Android sing-box core
