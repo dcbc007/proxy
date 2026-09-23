@@ -18,8 +18,8 @@ if kts.exists():
     if 'multiDexEnabled = true' not in s:
         s = s.replace('defaultConfig {', 'defaultConfig {\n        multiDexEnabled = true', 1)
     if 'useLegacyPackaging = true' not in s:
-        block = '\n    packagingOptions {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }\n'
-        s = re.sub(r'\n}\s*\nflutter\s*\{', block + '}\n\nflutter {', s, count=1)
+        block = 'android {\n    packagingOptions {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }'
+        s = s.replace('android {', block, 1)
     if 'implementation(fileTree' not in s:
         s += '\n\ndependencies {\n    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))\n}\n'
     kts.write_text(s)
@@ -32,9 +32,8 @@ if groovy.exists():
     if 'multiDexEnabled true' not in s:
         s = s.replace('defaultConfig {', 'defaultConfig {\n        multiDexEnabled true', 1)
     if 'useLegacyPackaging = true' not in s:
-        pos = s.rfind('}')
-        if pos > 0:
-            s = s[:pos] + '    packagingOptions {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }\n' + s[pos:]
+        block = 'android {\n    packagingOptions {\n        jniLibs {\n            useLegacyPackaging true\n        }\n    }'
+        s = s.replace('android {', block, 1)
     if "implementation fileTree(dir: 'libs'" not in s:
         s += "\n\ndependencies {\n    implementation fileTree(dir: 'libs', include: ['*.aar'])\n}\n"
     groovy.write_text(s)
