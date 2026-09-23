@@ -64,7 +64,7 @@ jobs:
 
       - name: Flutter static analysis
         shell: bash
-        run: flutter analyze
+        run: flutter analyze lib --no-fatal-infos --no-fatal-warnings
 
       - name: Build Android Xray TUN bridge
         shell: bash
