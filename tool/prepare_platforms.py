@@ -14,12 +14,9 @@ if manifest.exists():
 kts = root / 'android/app/build.gradle.kts'
 if kts.exists():
     s = kts.read_text()
-    s = re.sub(r'minSdk\s*=\s*flutter\.minSdkVersion', 'minSdk = 23', s)
+    s = re.sub(r'minSdk\s*=\s*flutter\.minSdkVersion', 'minSdk = 24', s)
     if 'multiDexEnabled = true' not in s:
         s = s.replace('defaultConfig {', 'defaultConfig {\n        multiDexEnabled = true', 1)
-    if 'useLegacyPackaging = true' not in s:
-        block = '\n    packaging {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }\n'
-        s = re.sub(r'\n}\s*\nflutter\s*\{', block + '}\n\nflutter {', s, count=1)
     if 'implementation(fileTree' not in s:
         s += '\n\ndependencies {\n    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))\n}\n'
     kts.write_text(s)
@@ -28,13 +25,9 @@ if kts.exists():
 groovy = root / 'android/app/build.gradle'
 if groovy.exists():
     s = groovy.read_text()
-    s = re.sub(r'minSdkVersion\s+flutter\.minSdkVersion', 'minSdkVersion 23', s)
+    s = re.sub(r'minSdkVersion\s+flutter\.minSdkVersion', 'minSdkVersion 24', s)
     if 'multiDexEnabled true' not in s:
         s = s.replace('defaultConfig {', 'defaultConfig {\n        multiDexEnabled true', 1)
-    if 'useLegacyPackaging = true' not in s:
-        pos = s.rfind('}')
-        if pos > 0:
-            s = s[:pos] + '    packaging {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }\n' + s[pos:]
     if "implementation fileTree(dir: 'libs'" not in s:
         s += "\n\ndependencies {\n    implementation fileTree(dir: 'libs', include: ['*.aar'])\n}\n"
     groovy.write_text(s)
