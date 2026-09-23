@@ -71,6 +71,9 @@ jobs:
         run: |
           rm -rf third_party/libXray
           git clone --depth 1 --branch v26.1.23 https://github.com/XTLS/libXray.git third_party/libXray
+          cd third_party/libXray
+          go mod edit -replace=gvisor.dev/gvisor=gvisor.dev/gvisor@v0.0.0-20260122175437-89a5d21be8f0
+          cd "$GITHUB_WORKSPACE"
 
       - name: Build Android Xray TUN bridge
         shell: bash
