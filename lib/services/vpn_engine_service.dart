@@ -31,12 +31,16 @@ class VpnEngineService {
 
     if (node.protocol == ProxyProtocol.snell) {
       try {
-        final ok = await box.connect(node.connectionLink, name: node.name, notificationTitle: 'Aurum Proxy');
+        final ok = await box
+            .connect(node.connectionLink, name: node.name, notificationTitle: 'Aurum Proxy')
+            .timeout(const Duration(seconds: 12), onTimeout: () => false);
         if (ok) return true;
       } catch (_) {}
       return box.connectWithJson(SingBoxConfigBuilder.fromNode(node), name: node.name);
     }
-    return box.connect(node.connectionLink, name: node.name, notificationTitle: 'Aurum Proxy');
+    return box
+        .connect(node.connectionLink, name: node.name, notificationTitle: 'Aurum Proxy')
+        .timeout(const Duration(seconds: 12), onTimeout: () => false);
   }
 
   Future<bool> disconnect() => box.disconnect();
@@ -55,24 +59,19 @@ class VpnEngineService {
     if (await hasVpnPermission()) return true;
 
     try {
-      final launched =
-          await _vpnPermissionChannel.invokeMethod<bool>('request') ?? false;
-      if (!launched) return false;
+      // Wait for the system VPN dialog to close, but do not trust OEM result
+      // codes as the final permission authority. The native v2ray_box start
+      // path performs VpnService.prepare() again and either starts directly
+      // or requests VPN permission itself.
+      await _vpnPermissionChannel
+          .invokeMethod<bool>('request')
+          .timeout(const Duration(seconds: 20), onTimeout: () => true);
+      return true;
     } on PlatformException {
-      return false;
+      // Still continue to v2ray_box; its native start path owns the final
+      // VpnService.prepare() decision and can request permission again.
+      return true;
     }
-
-    // Android/OEM builds may deliver the activity result late or differently.
-    // Poll the authoritative VpnService.prepare() state instead of waiting on
-    // an activity-result callback.
-    for (var i = 0; i < 120; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      if (await hasVpnPermission()) {
-        await Future<void>.delayed(const Duration(milliseconds: 350));
-        return true;
-      }
-    }
-    return false;
   }
 
   Future<String> appVersion() async {

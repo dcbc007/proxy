@@ -20,7 +20,7 @@ class AppState extends ChangeNotifier {
   bool connecting = false;
   bool coreReady = false;
   String coreVersion = '';
-  String appVersion = '1.0.4';
+  String appVersion = '1.0.5';
   String mode = '智能模式';
   String downloadSpeed = '0 B/s';
   String uploadSpeed = '0 B/s';
@@ -199,11 +199,13 @@ class AppState extends ChangeNotifier {
         if (!granted) {
           _log('等待系统 VPN 授权：请在系统弹窗中选择“允许”');
         }
+        _log('VPN 授权窗口已结束，正在启动 VPN 服务');
+        notifyListeners();
         final ok = await _vpn.connect(node);
         if (!ok) {
-          _log('VPN 授权未通过或等待超时，连接未启动');
+          _log('VPN 服务启动请求超时或失败');
         } else {
-          _log('VPN 权限已确认，启动命令已提交，等待核心连接');
+          _log('VPN 启动命令已提交，等待核心连接');
         }
       }
     } catch (e) {
