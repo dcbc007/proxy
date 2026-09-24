@@ -40,6 +40,8 @@ class VpnEngineService {
 
   Future<bool> disconnect() => box.disconnect();
 
+  Future<bool> hasVpnPermission() => box.checkVpnPermission();
+
   Future<int> ping(ProxyNode node) async {
     if (node.protocol == ProxyProtocol.snell) return -1;
     return box.ping(node.connectionLink, timeout: 7000);
