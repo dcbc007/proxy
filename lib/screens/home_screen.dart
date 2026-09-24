@@ -23,6 +23,23 @@ class HomeScreen extends StatelessWidget {
               Row(
                 children: [
                   const Expanded(child: Text('首页', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800))),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: AppColors.card.withOpacity(.85),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.line),
+                    ),
+                    child: Text(
+                      'v${s.appVersion}',
+                      style: const TextStyle(
+                        color: AppColors.goldBright,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
                   IconButton(
                     onPressed: () {},
                     icon: const Icon(Icons.workspace_premium_outlined, color: AppColors.gold),

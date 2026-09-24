@@ -1,10 +1,15 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:v2ray_box/v2ray_box.dart';
 
 import '../models/proxy_node.dart';
 import 'singbox_config_builder.dart';
 
 class VpnEngineService {
+  static const MethodChannel _vpnPermissionChannel =
+      MethodChannel('aurum_proxy/vpn_permission');
+
   final V2rayBox box = V2rayBox();
 
   Future<void> initialize() async {
@@ -19,12 +24,8 @@ class VpnEngineService {
   Stream<Map<String, dynamic>> watchAlerts() => box.watchAlerts();
 
   Future<bool> connect(ProxyNode node) async {
-    // Do not pre-request Android VPN permission here.
-    // v2ray_box's requestVpnPermission() returns false when it has merely
-    // displayed the system VPN consent dialog (not when the user denied it).
-    // Calling connect/start directly first writes the active configuration,
-    // then the native plugin requests VPN consent and automatically resumes
-    // the service from onActivityResult after the user accepts.
+    if (!await ensureVpnPermission()) return false;
+
     await box.setCoreEngine('singbox');
     await box.setServiceMode(VpnMode.vpn);
 
@@ -40,7 +41,23 @@ class VpnEngineService {
 
   Future<bool> disconnect() => box.disconnect();
 
-  Future<bool> hasVpnPermission() => box.checkVpnPermission();
+  Future<bool> hasVpnPermission() async {
+    if (!Platform.isAndroid) return true;
+    try {
+      return await _vpnPermissionChannel.invokeMethod<bool>('check') ?? false;
+    } on PlatformException {
+      return box.checkVpnPermission();
+    }
+  }
+
+  Future<bool> ensureVpnPermission() async {
+    if (!Platform.isAndroid) return true;
+    try {
+      return await _vpnPermissionChannel.invokeMethod<bool>('request') ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
 
   Future<int> ping(ProxyNode node) async {
     if (node.protocol == ProxyProtocol.snell) return -1;
