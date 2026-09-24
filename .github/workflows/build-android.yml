@@ -63,9 +63,8 @@ jobs:
           cp -R .aurum_scaffold/android ./android
           rm -rf .aurum_scaffold
           python3 tool/prepare_platforms.py "$GITHUB_WORKSPACE"
-          mkdir -p "$HOME/.android"
-          base64 -d tool/signing/aurum-release-keystore.b64 > "$HOME/.android/debug.keystore"
-          chmod 600 "$HOME/.android/debug.keystore"
+          base64 -d tool/signing/aurum-release-keystore.b64 > android/app/aurum-release.jks
+          chmod 600 android/app/aurum-release.jks
           flutter pub get
 
       - name: Flutter static analysis
@@ -99,19 +98,26 @@ jobs:
         shell: bash
         run: flutter build apk --release --target-platform android-arm64
 
+      - name: Verify stable APK signer
+        shell: bash
+        run: |
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
+          "$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | tee /tmp/apk-cert.txt
+          grep -qi "da0505ba9a454d0a347a2f9139323a5f635be840ef729108b7c3c18ae93b7b10" /tmp/apk-cert.txt
+
       - name: Prepare APK
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.0.3-arm64.apk
-          sha256sum dist/AurumProxy-1.0.3-arm64.apk > dist/AurumProxy-1.0.3-arm64.apk.sha256
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.0.4-arm64.apk
+          sha256sum dist/AurumProxy-1.0.4-arm64.apk > dist/AurumProxy-1.0.4-arm64.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AurumProxy-1.0.3-arm64
+          name: AurumProxy-1.0.4-arm64
           path: |
-            dist/AurumProxy-1.0.3-arm64.apk
-            dist/AurumProxy-1.0.3-arm64.apk.sha256
+            dist/AurumProxy-1.0.4-arm64.apk
+            dist/AurumProxy-1.0.4-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
