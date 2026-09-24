@@ -39,7 +39,7 @@ void main() {
     final route = config['route'] as Map<String, dynamic>;
     expect(route['final'], 'proxy');
     final rules = route['rules'] as List;
-    expect(rules.length, 2);
+    expect(rules.length, 3);
     final ruleSets = route['rule_set'] as List;
     expect(ruleSets.length, 2);
     expect((ruleSets.first as Map)['type'], 'local');

@@ -38,16 +38,69 @@ class QrPayloadParser {
       transport: query['type'] ?? query['transport'] ?? 'tcp',
       security: query['security'] ?? '',
       sni: query['sni'] ?? query['peer'] ?? '',
-      path: query['path'] ?? '',
+      path: query['serviceName'] ?? query['service_name'] ?? query['path'] ?? '',
       publicKey: query['pbk'] ?? query['publicKey'] ?? '',
       shortId: query['sid'] ?? query['shortId'] ?? '',
       flow: query['flow'] ?? '',
       fingerprint: query['fp'] ?? 'chrome',
+      network: query['network'] ?? '',
+      tlsInsecure: _truthy(query['insecure']) ||
+          _truthy(query['allowInsecure']) ||
+          _truthy(query['skip-cert-verify']),
+      alpn: query['alpn'] ?? '',
+      host: query['host'] ?? '',
+      packetEncoding: query['packetEncoding'] ?? query['packet_encoding'] ?? '',
+      hy2UpMbps: protocol == ProxyProtocol.hysteria2
+          ? _intParam(query, ['upmbps', 'up_mbps'])
+          : 0,
+      hy2DownMbps: protocol == ProxyProtocol.hysteria2
+          ? _intParam(query, ['downmbps', 'down_mbps'])
+          : 0,
+      hy2Obfs: protocol == ProxyProtocol.hysteria2 ? (query['obfs'] ?? '') : '',
+      hy2ObfsPassword: protocol == ProxyProtocol.hysteria2
+          ? (query['obfs-password'] ?? query['obfs_password'] ?? query['obfsPassword'] ?? '')
+          : '',
+      hy2ServerPorts: protocol == ProxyProtocol.hysteria2
+          ? (query['mport'] ?? query['server_ports'] ?? '')
+          : '',
+      hy2HopInterval: protocol == ProxyProtocol.hysteria2
+          ? (query['hop-interval'] ?? query['hop_interval'] ?? '')
+          : '',
+      hy2HopIntervalMax: protocol == ProxyProtocol.hysteria2
+          ? (query['hop-interval-max'] ?? query['hop_interval_max'] ?? '')
+          : '',
+      hy2BbrProfile: protocol == ProxyProtocol.hysteria2
+          ? (query['bbr-profile'] ?? query['bbr_profile'] ?? '')
+          : '',
+      hy2DisableChromeParrot: protocol == ProxyProtocol.hysteria2 &&
+          (_truthy(query['disable-chrome-parrot']) ||
+              _truthy(query['disable_chrome_parrot'])),
       snellVersion: protocol == ProxyProtocol.snell
           ? (int.tryParse(query['version'] ?? '') ?? 5)
           : 5,
+      snellReuse: protocol != ProxyProtocol.snell || query['reuse'] == null
+          ? true
+          : _truthy(query['reuse']),
+      snellUserKey: protocol == ProxyProtocol.snell ? (query['userkey'] ?? '') : '',
+      snellObfsMode: protocol == ProxyProtocol.snell ? (query['obfs_mode'] ?? 'none') : 'none',
+      snellObfsHost: protocol == ProxyProtocol.snell ? (query['obfs_host'] ?? '') : '',
+      snellMode: protocol == ProxyProtocol.snell ? (query['mode'] ?? 'default') : 'default',
       sourceLink: raw,
     );
+  }
+
+  static bool _truthy(String? value) {
+    if (value == null) return false;
+    final v = value.trim().toLowerCase();
+    return v == '1' || v == 'true' || v == 'yes' || v == 'on';
+  }
+
+  static int _intParam(Map<String, String> query, List<String> keys) {
+    for (final key in keys) {
+      final value = int.tryParse(query[key] ?? '');
+      if (value != null) return value;
+    }
+    return 0;
   }
 
   static ProxyNode _parseSs(String raw) {
@@ -86,6 +139,8 @@ class QrPayloadParser {
       );
     }
 
+    final pluginRaw = uri.queryParameters['plugin'] ?? '';
+    final pluginParts = pluginRaw.isEmpty ? <String>[] : pluginRaw.split(';');
     return ProxyNode(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       name: name,
@@ -94,6 +149,9 @@ class QrPayloadParser {
       port: uri.port,
       method: method,
       password: password,
+      plugin: pluginParts.isEmpty ? '' : pluginParts.first,
+      pluginOpts: pluginParts.length <= 1 ? '' : pluginParts.sublist(1).join(';'),
+      network: uri.queryParameters['network'] ?? '',
       sourceLink: raw,
     );
   }
@@ -113,6 +171,15 @@ class QrPayloadParser {
       security: j['tls']?.toString() ?? '',
       sni: j['sni']?.toString() ?? '',
       path: j['path']?.toString() ?? '',
+      host: j['host']?.toString() ?? '',
+      alpn: j['alpn']?.toString() ?? '',
+      fingerprint: j['fp']?.toString() ?? 'chrome',
+      tlsInsecure: j['allowInsecure'] == true ||
+          j['allowInsecure'] == 1 ||
+          j['allowInsecure']?.toString() == '1',
+      packetEncoding: j['packetEncoding']?.toString() ?? '',
+      vmessSecurity: j['scy']?.toString() ?? 'auto',
+      alterId: int.tryParse(j['aid']?.toString() ?? '') ?? 0,
       sourceLink: raw,
     );
   }
