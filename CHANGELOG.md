@@ -18,3 +18,5 @@
 - 订阅拉取与更新。
 - VLESS Reality / Snell v5 配置支持。
 - Android Release 构建脚本与 iOS 编译指南。
+
+- 构建验证：1.0.2 Android release pipeline.
