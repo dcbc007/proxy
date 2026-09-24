@@ -30,13 +30,12 @@ class VpnEngineService {
     await box.setServiceMode(VpnMode.vpn);
 
     if (node.protocol == ProxyProtocol.snell) {
-      try {
-        final ok = await box
-            .connect(node.connectionLink, name: node.name, notificationTitle: 'Aurum Proxy')
-            .timeout(const Duration(seconds: 12), onTimeout: () => false);
-        if (ok) return true;
-      } catch (_) {}
-      return box.connectWithJson(SingBoxConfigBuilder.fromNode(node), name: node.name);
+      // v2ray_box's share-link parser does not parse snell:// links. Build the
+      // sing-box config explicitly so the protocol-version compatibility
+      // mapping is deterministic and validated before startup.
+      return box
+          .connectWithJson(SingBoxConfigBuilder.fromNode(node), name: node.name)
+          .timeout(const Duration(seconds: 12), onTimeout: () => false);
     }
     return box
         .connect(node.connectionLink, name: node.name, notificationTitle: 'Aurum Proxy')
