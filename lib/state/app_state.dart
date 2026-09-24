@@ -89,7 +89,9 @@ class AppState extends ChangeNotifier {
       final name = status.name;
       connecting = name == 'starting' || name == 'stopping';
       final nowConnected = name == 'started';
-      if (nowConnected && !connected) {
+      final wasConnected = connected;
+      connected = nowConnected;
+      if (nowConnected && !wasConnected) {
         _connectedAt = DateTime.now();
         _startTimer();
         _startLatencyTimer();
@@ -102,7 +104,6 @@ class AppState extends ChangeNotifier {
         _timer?.cancel();
         _latencyTimer?.cancel();
       }
-      connected = nowConnected;
       notifyListeners();
     }, onError: (Object e) => _logAndNotify('状态流错误：$e'));
 
