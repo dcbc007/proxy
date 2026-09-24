@@ -164,3 +164,49 @@ bs = bs.replace(
 )
 bp.write_text(bs, encoding="utf-8")
 print("Patched sing-box startup diagnostics.")
+
+
+# Fix connectWithJson() in sing-box VPN mode.
+# Upstream writes raw JSON to active_config.json. BoxService later reuses
+# active_config.json as the Xray TUN bridge config, so it accidentally feeds
+# sing-box JSON (mixed inbound/listen_port) into Xray. Store sing-box JSON in
+# singbox_config.json and generate the real Xray bridge separately.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+old_json_writer = '''        fun writeJsonConfigFile(context: Context, configJson: String): String {
+            val wDir = getWorkingDir(context)
+            val configFile = File(wDir, "active_config.json")
+            configFile.writeText(configJson)
+            Log.d(TAG, "JSON config written to: ${configFile.absolutePath}")
+            return configFile.absolutePath
+        }
+'''
+new_json_writer = '''        fun writeJsonConfigFile(context: Context, configJson: String): String {
+            val wDir = getWorkingDir(context)
+
+            if (Settings.coreEngine == CoreEngine.SINGBOX) {
+                val singboxFile = File(wDir, "singbox_config.json")
+                singboxFile.writeText(configJson)
+                Log.d(TAG, "Sing-box JSON config written to: ${singboxFile.absolutePath}")
+
+                if (Settings.serviceMode == ServiceMode.VPN) {
+                    val bridgeConfig = buildXrayTunBridge(context)
+                    val bridgeFile = File(wDir, "active_config.json")
+                    bridgeFile.writeText(bridgeConfig)
+                    Log.d(TAG, "Xray TUN bridge config written for raw sing-box JSON")
+                }
+
+                return singboxFile.absolutePath
+            }
+
+            val configFile = File(wDir, "active_config.json")
+            configFile.writeText(configJson)
+            Log.d(TAG, "Xray JSON config written to: ${configFile.absolutePath}")
+            return configFile.absolutePath
+        }
+'''
+if old_json_writer not in bs:
+    raise SystemExit("BoxService.writeJsonConfigFile pattern not found")
+bs = bs.replace(old_json_writer, new_json_writer, 1)
+bp.write_text(bs, encoding="utf-8")
+print("Patched raw sing-box JSON VPN bridge separation.")
