@@ -251,3 +251,37 @@ vs = vs.replace(old_callback, new_callback, 1)
 
 vp.write_text(vs, encoding="utf-8")
 print("Patched VPN status event delivery independent of Activity lifecycle.")
+
+# buildConfig is used by generate_config. The Android child process must not
+# create a privileged TUN: VpnService and the Xray bridge own that descriptor.
+bs = bp.read_text(encoding='utf-8')
+needle = 'SingboxConfigParser.buildSingboxConfig(configLink, !proxyOnly)'
+if needle not in bs:
+    raise SystemExit('generate_config sing-box TUN pattern not found')
+bs = bs.replace(needle, 'SingboxConfigParser.buildSingboxConfig(configLink, false)', 1)
+bp.write_text(bs, encoding='utf-8')
+
+# Preserve the real stderr tail on startup failure; a valid schema can still
+# fail at runtime (TUN permission, port collision, DNS, etc.).
+ss = sp.read_text(encoding='utf-8')
+ss = ss.replace('    private var process: Process? = null', '''    private val recentOutput = java.util.ArrayDeque<String>()
+    private var process: Process? = null''', 1)
+ss = ss.replace('        lastError = ""', '''        lastError = ""
+        synchronized(recentOutput) { recentOutput.clear() }''', 1)
+ss = ss.replace('                        Log.i("SingboxCore", line)', '''                        synchronized(recentOutput) {
+                            if (recentOutput.size >= 12) recentOutput.removeFirst()
+                            recentOutput.addLast(line.take(500))
+                        }
+                        Log.i("SingboxCore", line)''', 1)
+ss = ss.replace('lastError = "process exited immediately (code=$exitCode)"', '''lastError = "process exited immediately (code=$exitCode): " +
+                    synchronized(recentOutput) { recentOutput.joinToString(" | ").takeLast(2000) }''', 1)
+# A dying old process must not clear the state of a newly started process.
+ss = ss.replace('''                    isRunning = false
+                    if (process == proc) {
+                        process = null
+                    }''', '''                    if (process == proc) {
+                        isRunning = false
+                        process = null
+                    }''', 1)
+sp.write_text(ss, encoding='utf-8')
+print('Patched Android TUN ownership and runtime stderr diagnostics.')

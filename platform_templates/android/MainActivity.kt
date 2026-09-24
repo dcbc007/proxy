@@ -14,6 +14,8 @@ class MainActivity : FlutterActivity() {
         private const val VPN_PERMISSION_REQUEST_CODE = 42420
     }
 
+    private val latencyExecutor = java.util.concurrent.Executors.newFixedThreadPool(2)
+
     private var pendingVpnPermissionResult: MethodChannel.Result? = null
     private var vpnDialogLaunched = false
 
@@ -25,6 +27,15 @@ class MainActivity : FlutterActivity() {
             CHANNEL
         ).setMethodCallHandler { call, result ->
             when (call.method) {
+                "measureNodeDelay" -> {
+                    val config = call.argument<String>("config")
+                    val tag = call.argument<String>("tag") ?: "proxy"
+                    val appContext = applicationContext
+                    latencyExecutor.execute {
+                        val delay = NodeLatencyProbe.measure(appContext, config, tag)
+                        Handler(Looper.getMainLooper()).post { result.success(delay) }
+                    }
+                }
                 "check" -> result.success(VpnService.prepare(this) == null)
                 "request" -> requestVpnPermission(result)
                 "version" -> {
@@ -38,6 +49,11 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    override fun onDestroy() {
+        latencyExecutor.shutdown()
+        super.onDestroy()
     }
 
     private fun requestVpnPermission(result: MethodChannel.Result) {
