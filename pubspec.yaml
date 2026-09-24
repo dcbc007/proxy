@@ -1,7 +1,7 @@
 name: aurum_proxy
 description: Aurum Proxy - black-gold VPN/proxy client for Android and iOS.
 publish_to: "none"
-version: 1.0.4+104
+version: 1.0.5+105
 
 environment:
   sdk: ">=3.5.0 <4.0.0"
