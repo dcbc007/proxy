@@ -410,6 +410,14 @@ class AppState extends ChangeNotifier {
       geoUpdatedAt = updated;
       await _store.saveGeoUpdatedAt(updated);
       _log('GeoIP / GeoSite 地址库更新完成');
+
+      final node = selectedNode;
+      if (connected && mode == '智能模式' && node != null) {
+        _log('正在重新加载智能分流规则');
+        await _vpn.disconnect();
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        await _vpn.connect(node, mode: mode);
+      }
     } catch (e) {
       _log('GeoIP / GeoSite 更新失败：$e');
       rethrow;
