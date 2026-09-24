@@ -19,10 +19,12 @@ class VpnEngineService {
   Stream<Map<String, dynamic>> watchAlerts() => box.watchAlerts();
 
   Future<bool> connect(ProxyNode node) async {
-    if (!await box.checkVpnPermission()) {
-      final granted = await box.requestVpnPermission();
-      if (!granted) return false;
-    }
+    // Do not pre-request Android VPN permission here.
+    // v2ray_box's requestVpnPermission() returns false when it has merely
+    // displayed the system VPN consent dialog (not when the user denied it).
+    // Calling connect/start directly first writes the active configuration,
+    // then the native plugin requests VPN consent and automatically resumes
+    // the service from onActivityResult after the user accepts.
     await box.setCoreEngine('singbox');
     await box.setServiceMode(VpnMode.vpn);
 
