@@ -1,6 +1,8 @@
 name: Build AurumProxy Android APK
 
 on:
+  push:
+    branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -46,11 +48,31 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.1.13356709" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/28.1.13356709" >> "$GITHUB_ENV"
 
-      - name: Fetch v2ray_box plugin
+      - name: Fetch and patch v2ray_box plugin
         shell: bash
         run: |
           mkdir -p third_party
           git clone --depth 1 https://github.com/imanheidary/v2box.git third_party/v2box
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/V2rayBoxPlugin.kt")
+          s = p.read_text(encoding="utf-8")
+          old = """    private fun startService() {
+        if (!checkNotificationPermission()) {
+            grantNotificationPermission()
+            return
+        }
+        scope.launch(Dispatchers.IO) {
+"""
+          new = """    private fun startService() {
+        // Android 13+ notification permission is not required to start a VPN foreground service.
+        // Do not block the VPN consent flow behind POST_NOTIFICATIONS.
+        scope.launch(Dispatchers.IO) {
+"""
+          if old not in s:
+              raise SystemExit("v2ray_box startService permission gate pattern not found")
+          p.write_text(s.replace(old, new, 1), encoding="utf-8")
+          PY
 
       - name: Create Android platform project
         shell: bash
@@ -60,6 +82,9 @@ jobs:
           cp -R .aurum_scaffold/android ./android
           rm -rf .aurum_scaffold
           python3 tool/prepare_platforms.py "$GITHUB_WORKSPACE"
+          mkdir -p "$HOME/.android"
+          base64 -d tool/signing/aurum-release-keystore.b64 > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
           flutter pub get
 
       - name: Flutter static analysis
@@ -97,15 +122,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.0.1-arm64.apk
-          sha256sum dist/AurumProxy-1.0.1-arm64.apk > dist/AurumProxy-1.0.1-arm64.apk.sha256
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.0.2-arm64.apk
+          sha256sum dist/AurumProxy-1.0.2-arm64.apk > dist/AurumProxy-1.0.2-arm64.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AurumProxy-1.0.1-arm64
+          name: AurumProxy-1.0.2-arm64
           path: |
-            dist/AurumProxy-1.0.1-arm64.apk
-            dist/AurumProxy-1.0.1-arm64.apk.sha256
+            dist/AurumProxy-1.0.2-arm64.apk
+            dist/AurumProxy-1.0.2-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
