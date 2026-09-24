@@ -238,7 +238,10 @@ class AppState extends ChangeNotifier {
     if (!coreReady || _latencyBusy) return;
     _latencyBusy = true;
     try {
-      final latency = await _vpn.ping(node);
+      final latency = await _vpn.ping(
+        node,
+        allowTunnelFallback: connected && selectedNodeId == node.id,
+      );
       node.latencyMs = latency > 0 ? latency : null;
       await _store.saveNodes(nodes);
       if (logResult) {
