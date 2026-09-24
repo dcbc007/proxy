@@ -97,9 +97,45 @@ class VpnEngineService {
     }
   }
 
-  Future<int> ping(ProxyNode node) async {
+  Future<int> ping(
+    ProxyNode node, {
+    bool allowTunnelFallback = false,
+  }) async {
     if (node.protocol == ProxyProtocol.snell) return -1;
-    return box.ping(node.connectionLink, timeout: 7000);
+    final value = await box.ping(node.connectionLink, timeout: 7000);
+    if (value > 0) return value;
+
+    // libXray's standalone URL tester does not understand every sing-box-only
+    // protocol (notably Hysteria2). When that node is already connected, time
+    // a small HTTPS request through the active Android VPN as the effective
+    // tunnel latency shown on Home.
+    if (allowTunnelFallback && node.protocol == ProxyProtocol.hysteria2) {
+      return _measureActiveTunnelLatency();
+    }
+    return -1;
+  }
+
+  Future<int> _measureActiveTunnelLatency() async {
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 5);
+    final sw = Stopwatch()..start();
+    try {
+      final request = await client.getUrl(
+        Uri.parse('https://www.gstatic.com/generate_204'),
+      );
+      request.followRedirects = false;
+      final response = await request.close().timeout(const Duration(seconds: 7));
+      await response.drain<void>();
+      sw.stop();
+      if (response.statusCode >= 200 && response.statusCode < 500) {
+        return sw.elapsedMilliseconds.clamp(1, 60000);
+      }
+    } catch (_) {
+      // Fall through to -1.
+    } finally {
+      client.close(force: true);
+    }
+    return -1;
   }
 
   Future<void> setRoutingMode(String mode) async {
