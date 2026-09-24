@@ -31,6 +31,10 @@ class MainActivity : FlutterActivity() {
                     val info = packageManager.getPackageInfo(packageName, 0)
                     result.success(info.versionName ?: "")
                 }
+                "filesDir" -> {
+                    val dir = getExternalFilesDir(null) ?: filesDir
+                    result.success(dir.absolutePath)
+                }
                 else -> result.notImplemented()
             }
         }
