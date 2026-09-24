@@ -53,6 +53,7 @@ jobs:
         run: |
           mkdir -p third_party
           git clone --depth 1 https://github.com/imanheidary/v2box.git third_party/v2box
+          git -C third_party/v2box checkout bc194f6a2fddee401d1c3b8141fec8d76c8d19f3
           python3 tool/patch_v2ray_box_android.py
 
       - name: Verify activity-independent VPN status patch
@@ -106,7 +107,14 @@ jobs:
 
       - name: Desktop routing regression test
         shell: bash
-        run: flutter test test/routing_logic_test.dart
+        run: flutter test
+
+      - name: HY2 and real latency integration test
+        shell: bash
+        run: |
+          curl -fL --retry 3 -o /tmp/singbox-linux.tar.gz https://github.com/SagerNet/sing-box/releases/download/v1.14.1/sing-box-1.14.1-linux-amd64.tar.gz
+          tar -xzf /tmp/singbox-linux.tar.gz -C /tmp
+          python3 tool/smoke_test_singbox.py /tmp/sing-box-1.14.1-linux-amd64/sing-box
 
       - name: Prepare pinned libXray source
         shell: bash
@@ -155,15 +163,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.1.0-arm64.apk
-          sha256sum dist/AurumProxy-1.1.0-arm64.apk > dist/AurumProxy-1.1.0-arm64.apk.sha256
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.1.1-arm64.apk
+          sha256sum dist/AurumProxy-1.1.1-arm64.apk > dist/AurumProxy-1.1.1-arm64.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AurumProxy-1.1.0-arm64
+          name: AurumProxy-1.1.1-arm64
           path: |
-            dist/AurumProxy-1.1.0-arm64.apk
-            dist/AurumProxy-1.1.0-arm64.apk.sha256
+            dist/AurumProxy-1.1.1-arm64.apk
+            dist/AurumProxy-1.1.1-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14

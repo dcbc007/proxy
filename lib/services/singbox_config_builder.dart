@@ -1,5 +1,7 @@
 import 'dart:convert';
+
 import '../models/proxy_node.dart';
+import 'singbox_config_router.dart';
 
 /// Fallback raw sing-box config, primarily used for Snell v5.
 /// On Android v2ray_box runs sing-box behind its VpnService TUN bridge and
@@ -18,10 +20,18 @@ class SingBoxConfigBuilder {
 
     switch (n.protocol) {
       case ProxyProtocol.shadowsocks:
-        outbound.addAll({'type': 'shadowsocks', 'method': n.method, 'password': n.password});
+        outbound.addAll({
+          'type': 'shadowsocks',
+          'method': n.method,
+          'password': n.password,
+        });
         break;
       case ProxyProtocol.vless:
-        outbound.addAll({'type': 'vless', 'uuid': n.uuid, if (n.flow.isNotEmpty) 'flow': n.flow});
+        outbound.addAll({
+          'type': 'vless',
+          'uuid': n.uuid,
+          if (n.flow.isNotEmpty) 'flow': n.flow,
+        });
         _tlsAndTransport(outbound, n);
         break;
       case ProxyProtocol.vmess:
@@ -36,10 +46,7 @@ class SingBoxConfigBuilder {
         outbound.addAll({
           'type': 'hysteria2',
           'password': n.password,
-          'tls': {
-            'enabled': true,
-            if (n.sni.isNotEmpty) 'server_name': n.sni,
-          },
+          'tls': {'enabled': true, if (n.sni.isNotEmpty) 'server_name': n.sni},
         });
         break;
       case ProxyProtocol.snell:
@@ -51,6 +58,7 @@ class SingBoxConfigBuilder {
           'type': 'snell',
           'psk': n.password,
           'version': runtimeVersion,
+          'reuse': true,
         });
         break;
     }
@@ -66,11 +74,7 @@ class SingBoxConfigBuilder {
       default:
         route['final'] = 'proxy';
         route['rules'] = [
-          {
-            'ip_is_private': true,
-            'action': 'route',
-            'outbound': 'direct',
-          },
+          {'ip_is_private': true, 'action': 'route', 'outbound': 'direct'},
           {
             'rule_set': ['geosite-cn', 'geoip-cn'],
             'action': 'route',
@@ -98,8 +102,7 @@ class SingBoxConfigBuilder {
               'type': 'remote',
               'tag': 'geosite-cn',
               'format': 'binary',
-              'url':
-                  'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs',
+              'url': 'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs',
               'download_detour': 'direct',
               'update_interval': '1d',
             },
@@ -107,8 +110,7 @@ class SingBoxConfigBuilder {
               'type': 'remote',
               'tag': 'geoip-cn',
               'format': 'binary',
-              'url':
-                  'https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs',
+              'url': 'https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs',
               'download_detour': 'direct',
               'update_interval': '1d',
             },
@@ -117,25 +119,29 @@ class SingBoxConfigBuilder {
         break;
     }
 
-    return jsonEncode({
-      'log': {'level': 'info', 'timestamp': true},
-      'inbounds': [
-        {
-          'type': 'mixed',
-          'tag': 'mixed-in',
-          'listen': '127.0.0.1',
-          'listen_port': 10808,
-        }
-      ],
-      'outbounds': [
-        outbound,
-        {'type': 'direct', 'tag': 'direct'}
-      ],
-      'route': route,
-      'experimental': {
-        'clash_api': {'external_controller': '127.0.0.1:9090'}
-      }
-    });
+    return SingBoxConfigRouter.apply(
+      jsonEncode({
+        'log': {'level': 'info', 'timestamp': true},
+        'inbounds': [
+          {
+            'type': 'mixed',
+            'tag': 'mixed-in',
+            'listen': '127.0.0.1',
+            'listen_port': 10808,
+          },
+        ],
+        'outbounds': [
+          outbound,
+          {'type': 'direct', 'tag': 'direct'},
+        ],
+        'route': route,
+        'experimental': {
+          'clash_api': {'external_controller': '127.0.0.1:9090'},
+        },
+      }),
+      mode: mode,
+      geoDir: geoDir,
+    );
   }
 
   static void _tlsAndTransport(Map<String, dynamic> outbound, ProxyNode n) {
@@ -144,13 +150,14 @@ class SingBoxConfigBuilder {
       outbound['tls'] = {
         'enabled': true,
         if (n.sni.isNotEmpty) 'server_name': n.sni,
-        if (n.fingerprint.isNotEmpty) 'utls': {'enabled': true, 'fingerprint': n.fingerprint},
+        if (n.fingerprint.isNotEmpty)
+          'utls': {'enabled': true, 'fingerprint': n.fingerprint},
         if (sec == 'reality')
           'reality': {
             'enabled': true,
             if (n.publicKey.isNotEmpty) 'public_key': n.publicKey,
             if (n.shortId.isNotEmpty) 'short_id': n.shortId,
-          }
+          },
       };
     }
     if (n.transport != 'tcp' && n.transport.isNotEmpty) {
