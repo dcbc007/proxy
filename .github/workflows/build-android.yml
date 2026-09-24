@@ -59,7 +59,7 @@ jobs:
         shell: bash
         run: |
           grep -q 'statusEventSink?.success(mapOf("status" to status.name))' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/V2rayBoxPlugin.kt
-          ! grep -q 'activity?.runOnUiThread' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/V2rayBoxPlugin.kt
+          grep -q 'Handler(android.os.Looper.getMainLooper()).post' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/V2rayBoxPlugin.kt
 
       - name: Verify sing-box/Xray bridge separation patch
         shell: bash
