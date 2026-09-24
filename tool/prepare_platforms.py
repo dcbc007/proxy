@@ -10,6 +10,13 @@ if manifest.exists():
     manifest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(template, manifest)
 
+# Android MainActivity (explicit VPN permission bridge)
+main_activity = root / 'android/app/src/main/kotlin/com/aurumproxy/aurum_proxy/MainActivity.kt'
+main_activity_template = root / 'platform_templates/android/MainActivity.kt'
+if main_activity_template.exists():
+    main_activity.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(main_activity_template, main_activity)
+
 # Android Gradle (Kotlin DSL current Flutter template)
 kts = root / 'android/app/build.gradle.kts'
 if kts.exists():
