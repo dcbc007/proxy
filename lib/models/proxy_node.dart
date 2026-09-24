@@ -42,6 +42,29 @@ class ProxyNode {
     this.shortId = '',
     this.flow = '',
     this.fingerprint = 'chrome',
+    this.network = '',
+    this.tlsInsecure = false,
+    this.alpn = '',
+    this.host = '',
+    this.packetEncoding = '',
+    this.plugin = '',
+    this.pluginOpts = '',
+    this.vmessSecurity = 'auto',
+    this.alterId = 0,
+    this.hy2UpMbps = 0,
+    this.hy2DownMbps = 0,
+    this.hy2Obfs = '',
+    this.hy2ObfsPassword = '',
+    this.hy2ServerPorts = '',
+    this.hy2HopInterval = '',
+    this.hy2HopIntervalMax = '',
+    this.hy2BbrProfile = '',
+    this.hy2DisableChromeParrot = false,
+    this.snellReuse = true,
+    this.snellUserKey = '',
+    this.snellObfsMode = 'none',
+    this.snellObfsHost = '',
+    this.snellMode = 'default',
     this.sourceLink = '',
     this.remark = '',
     this.favorite = false,
@@ -66,6 +89,29 @@ class ProxyNode {
   String shortId;
   String flow;
   String fingerprint;
+  String network;
+  bool tlsInsecure;
+  String alpn;
+  String host;
+  String packetEncoding;
+  String plugin;
+  String pluginOpts;
+  String vmessSecurity;
+  int alterId;
+  int hy2UpMbps;
+  int hy2DownMbps;
+  String hy2Obfs;
+  String hy2ObfsPassword;
+  String hy2ServerPorts;
+  String hy2HopInterval;
+  String hy2HopIntervalMax;
+  String hy2BbrProfile;
+  bool hy2DisableChromeParrot;
+  bool snellReuse;
+  String snellUserKey;
+  String snellObfsMode;
+  String snellObfsHost;
+  String snellMode;
   String sourceLink;
   String remark;
   bool favorite;
@@ -79,17 +125,37 @@ class ProxyNode {
     switch (protocol) {
       case ProxyProtocol.shadowsocks:
         final auth = base64Url.encode(utf8.encode('$method:$password')).replaceAll('=', '');
-        return 'ss://$auth@${_host(server)}:$port#$fragment';
+        final pluginValue = plugin.isEmpty
+            ? ''
+            : (pluginOpts.isEmpty ? plugin : '$plugin;$pluginOpts');
+        final q = <String, String>{
+          if (pluginValue.isNotEmpty) 'plugin': pluginValue,
+          if (network.isNotEmpty) 'network': network,
+        };
+        return Uri(
+          scheme: 'ss',
+          userInfo: auth,
+          host: server,
+          port: port,
+          queryParameters: q.isEmpty ? null : q,
+          fragment: name,
+        ).toString();
       case ProxyProtocol.vless:
         final q = <String, String>{
           if (transport.isNotEmpty && transport != 'tcp') 'type': transport,
           if (security.isNotEmpty) 'security': security,
           if (sni.isNotEmpty) 'sni': sni,
-          if (path.isNotEmpty) 'path': path,
+          if (tlsInsecure) 'allowInsecure': '1',
+          if (alpn.isNotEmpty) 'alpn': alpn,
+          if (host.isNotEmpty) 'host': host,
+          if (transport == 'grpc' && path.isNotEmpty) 'serviceName': path,
+          if (transport != 'grpc' && path.isNotEmpty) 'path': path,
           if (publicKey.isNotEmpty) 'pbk': publicKey,
           if (shortId.isNotEmpty) 'sid': shortId,
           if (flow.isNotEmpty) 'flow': flow,
-          if (fingerprint.isNotEmpty && security.toLowerCase() == 'reality') 'fp': fingerprint,
+          if (fingerprint.isNotEmpty && security.isNotEmpty) 'fp': fingerprint,
+          if (packetEncoding.isNotEmpty) 'packetEncoding': packetEncoding,
+          if (network.isNotEmpty) 'network': network,
         };
         return Uri(scheme: 'vless', userInfo: uuid, host: server, port: port, queryParameters: q.isEmpty ? null : q, fragment: name).toString();
       case ProxyProtocol.trojan:
@@ -97,11 +163,31 @@ class ProxyNode {
           if (transport.isNotEmpty && transport != 'tcp') 'type': transport,
           if (security.isNotEmpty) 'security': security,
           if (sni.isNotEmpty) 'sni': sni,
-          if (path.isNotEmpty) 'path': path,
+          if (tlsInsecure) 'allowInsecure': '1',
+          if (alpn.isNotEmpty) 'alpn': alpn,
+          if (fingerprint.isNotEmpty && security.isNotEmpty) 'fp': fingerprint,
+          if (host.isNotEmpty) 'host': host,
+          if (transport == 'grpc' && path.isNotEmpty) 'serviceName': path,
+          if (transport != 'grpc' && path.isNotEmpty) 'path': path,
+          if (network.isNotEmpty) 'network': network,
         };
         return Uri(scheme: 'trojan', userInfo: password, host: server, port: port, queryParameters: q.isEmpty ? null : q, fragment: name).toString();
       case ProxyProtocol.hysteria2:
-        final q = <String, String>{if (sni.isNotEmpty) 'sni': sni};
+        final q = <String, String>{
+          if (sni.isNotEmpty) 'sni': sni,
+          if (tlsInsecure) 'insecure': '1',
+          if (alpn.isNotEmpty) 'alpn': alpn,
+          if (hy2Obfs.isNotEmpty) 'obfs': hy2Obfs,
+          if (hy2ObfsPassword.isNotEmpty) 'obfs-password': hy2ObfsPassword,
+          if (hy2UpMbps > 0) 'upmbps': hy2UpMbps.toString(),
+          if (hy2DownMbps > 0) 'downmbps': hy2DownMbps.toString(),
+          if (hy2ServerPorts.isNotEmpty) 'mport': hy2ServerPorts,
+          if (hy2HopInterval.isNotEmpty) 'hop-interval': hy2HopInterval,
+          if (hy2HopIntervalMax.isNotEmpty) 'hop-interval-max': hy2HopIntervalMax,
+          if (hy2BbrProfile.isNotEmpty) 'bbr-profile': hy2BbrProfile,
+          if (hy2DisableChromeParrot) 'disable-chrome-parrot': '1',
+          if (network.isNotEmpty) 'network': network,
+        };
         return Uri(scheme: 'hy2', userInfo: password, host: server, port: port, queryParameters: q.isEmpty ? null : q, fragment: name).toString();
       case ProxyProtocol.vmess:
         final payload = <String, dynamic>{
@@ -110,23 +196,36 @@ class ProxyNode {
           'add': server,
           'port': port.toString(),
           'id': uuid,
-          'aid': '0',
-          'scy': 'auto',
+          'aid': alterId.toString(),
+          'scy': vmessSecurity.isEmpty ? 'auto' : vmessSecurity,
           'net': transport.isEmpty ? 'tcp' : transport,
           'type': 'none',
-          'host': '',
+          'host': host,
           'path': path,
           'tls': security.toLowerCase() == 'tls' ? 'tls' : '',
           'sni': sni,
+          'alpn': alpn,
+          'fp': fingerprint,
+          'allowInsecure': tlsInsecure ? 1 : 0,
+          'packetEncoding': packetEncoding,
         };
         return 'vmess://${base64Url.encode(utf8.encode(jsonEncode(payload))).replaceAll('=', '')}';
       case ProxyProtocol.snell:
+        final q = <String, String>{
+          'version': snellVersion.toString(),
+          if (snellReuse) 'reuse': '1',
+          if (snellUserKey.isNotEmpty) 'userkey': snellUserKey,
+          if (network.isNotEmpty) 'network': network,
+          if (snellVersion == 6 && snellMode.isNotEmpty) 'mode': snellMode,
+          if (snellVersion != 6 && snellObfsMode.isNotEmpty) 'obfs_mode': snellObfsMode,
+          if (snellVersion != 6 && snellObfsHost.isNotEmpty) 'obfs_host': snellObfsHost,
+        };
         return Uri(
           scheme: 'snell',
           userInfo: password,
           host: server,
           port: port,
-          queryParameters: {'version': snellVersion.toString()},
+          queryParameters: q,
           fragment: name,
         ).toString();
     }
@@ -152,6 +251,29 @@ class ProxyNode {
         'shortId': shortId,
         'flow': flow,
         'fingerprint': fingerprint,
+        'network': network,
+        'tlsInsecure': tlsInsecure,
+        'alpn': alpn,
+        'host': host,
+        'packetEncoding': packetEncoding,
+        'plugin': plugin,
+        'pluginOpts': pluginOpts,
+        'vmessSecurity': vmessSecurity,
+        'alterId': alterId,
+        'hy2UpMbps': hy2UpMbps,
+        'hy2DownMbps': hy2DownMbps,
+        'hy2Obfs': hy2Obfs,
+        'hy2ObfsPassword': hy2ObfsPassword,
+        'hy2ServerPorts': hy2ServerPorts,
+        'hy2HopInterval': hy2HopInterval,
+        'hy2HopIntervalMax': hy2HopIntervalMax,
+        'hy2BbrProfile': hy2BbrProfile,
+        'hy2DisableChromeParrot': hy2DisableChromeParrot,
+        'snellReuse': snellReuse,
+        'snellUserKey': snellUserKey,
+        'snellObfsMode': snellObfsMode,
+        'snellObfsHost': snellObfsHost,
+        'snellMode': snellMode,
         'sourceLink': sourceLink,
         'remark': remark,
         'favorite': favorite,
@@ -177,6 +299,35 @@ class ProxyNode {
         shortId: j['shortId']?.toString() ?? '',
         flow: j['flow']?.toString() ?? '',
         fingerprint: j['fingerprint']?.toString() ?? 'chrome',
+        network: j['network']?.toString() ?? '',
+        tlsInsecure: j['tlsInsecure'] == true,
+        alpn: j['alpn']?.toString() ?? '',
+        host: j['host']?.toString() ?? '',
+        packetEncoding: j['packetEncoding']?.toString() ?? '',
+        plugin: j['plugin']?.toString() ?? '',
+        pluginOpts: j['pluginOpts']?.toString() ?? '',
+        vmessSecurity: j['vmessSecurity']?.toString() ?? 'auto',
+        alterId: (j['alterId'] as num?)?.toInt() ??
+            int.tryParse(j['alterId']?.toString() ?? '') ??
+            0,
+        hy2UpMbps: (j['hy2UpMbps'] as num?)?.toInt() ??
+            int.tryParse(j['hy2UpMbps']?.toString() ?? '') ??
+            0,
+        hy2DownMbps: (j['hy2DownMbps'] as num?)?.toInt() ??
+            int.tryParse(j['hy2DownMbps']?.toString() ?? '') ??
+            0,
+        hy2Obfs: j['hy2Obfs']?.toString() ?? '',
+        hy2ObfsPassword: j['hy2ObfsPassword']?.toString() ?? '',
+        hy2ServerPorts: j['hy2ServerPorts']?.toString() ?? '',
+        hy2HopInterval: j['hy2HopInterval']?.toString() ?? '',
+        hy2HopIntervalMax: j['hy2HopIntervalMax']?.toString() ?? '',
+        hy2BbrProfile: j['hy2BbrProfile']?.toString() ?? '',
+        hy2DisableChromeParrot: j['hy2DisableChromeParrot'] == true,
+        snellReuse: j['snellReuse'] != false,
+        snellUserKey: j['snellUserKey']?.toString() ?? '',
+        snellObfsMode: j['snellObfsMode']?.toString() ?? 'none',
+        snellObfsHost: j['snellObfsHost']?.toString() ?? '',
+        snellMode: j['snellMode']?.toString() ?? 'default',
         sourceLink: j['sourceLink']?.toString() ?? '',
         remark: j['remark']?.toString() ?? '',
         favorite: j['favorite'] == true,
