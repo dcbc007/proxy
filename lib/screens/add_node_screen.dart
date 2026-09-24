@@ -236,7 +236,12 @@ class _AddNodeScreenState extends State<AddNodeScreen> with SingleTickerProvider
           onChanged: (v) => setState(() {
             protocol = v ?? protocol;
             if (protocol == ProxyProtocol.shadowsocks) port.text = '8388';
-            if (protocol == ProxyProtocol.hysteria2) security = 'tls';
+            if (protocol == ProxyProtocol.hysteria2) {
+              security = 'tls';
+            } else if (protocol != ProxyProtocol.vless &&
+                security == 'reality') {
+              security = 'tls';
+            }
           }),
         ),
         _field('节点名称', name, '例如：新加坡 SG-01'),
