@@ -76,15 +76,56 @@ class _AddNodeScreenState extends State<AddNodeScreen> with SingleTickerProvider
         : n.password;
     method.text = n.method.isEmpty ? 'aes-256-gcm' : n.method;
     transport = n.transport.isEmpty ? 'tcp' : n.transport;
+    if (!const [
+      'tcp',
+      'ws',
+      'grpc',
+      'http',
+      'h2',
+      'httpupgrade',
+      'xhttp',
+      'quic',
+      'kcp',
+    ].contains(transport)) {
+      transport = 'tcp';
+    }
     security = n.security.isEmpty ? 'none' : n.security;
-    network = n.network;
-    plugin = n.plugin;
-    packetEncoding = n.packetEncoding;
-    vmessSecurity = n.vmessSecurity.isEmpty ? 'auto' : n.vmessSecurity;
-    hy2Obfs = n.hy2Obfs;
-    hy2BbrProfile = n.hy2BbrProfile;
-    snellObfsMode = n.snellObfsMode.isEmpty ? 'none' : n.snellObfsMode;
-    snellMode = n.snellMode.isEmpty ? 'default' : n.snellMode;
+    if (n.protocol != ProxyProtocol.vless && security == 'reality') {
+      security = 'tls';
+    }
+    network = const ['', 'tcp', 'udp'].contains(n.network) ? n.network : '';
+    plugin = const ['', 'obfs-local', 'v2ray-plugin'].contains(n.plugin)
+        ? n.plugin
+        : '';
+    packetEncoding = const ['', 'xudp', 'packetaddr'].contains(n.packetEncoding)
+        ? n.packetEncoding
+        : '';
+    vmessSecurity = const [
+      'auto',
+      'none',
+      'zero',
+      'aes-128-gcm',
+      'chacha20-poly1305',
+    ].contains(n.vmessSecurity)
+        ? n.vmessSecurity
+        : 'auto';
+    hy2Obfs = const ['', 'salamander', 'gecko'].contains(n.hy2Obfs)
+        ? n.hy2Obfs
+        : '';
+    hy2BbrProfile = const [
+      '',
+      'conservative',
+      'standard',
+      'aggressive',
+    ].contains(n.hy2BbrProfile)
+        ? n.hy2BbrProfile
+        : '';
+    snellObfsMode = const ['none', 'http'].contains(n.snellObfsMode)
+        ? n.snellObfsMode
+        : 'none';
+    snellMode = const ['default', 'unshaped', 'unsafe-raw'].contains(n.snellMode)
+        ? n.snellMode
+        : 'default';
     sni.text = n.sni;
     alpn.text = n.alpn;
     path.text = n.path;
@@ -303,6 +344,7 @@ class _AddNodeScreenState extends State<AddNodeScreen> with SingleTickerProvider
               'httpupgrade',
               'xhttp',
               'quic',
+              'kcp',
             ].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
             onChanged: (v) => setState(() => transport = v ?? 'tcp'),
           ),
@@ -310,7 +352,7 @@ class _AddNodeScreenState extends State<AddNodeScreen> with SingleTickerProvider
             _field('Host', host, '例如：cdn.example.com'),
           if (transport == 'grpc')
             _field('gRPC Service Name', path, '例如：TunService')
-          else if (!['tcp', 'quic'].contains(transport))
+          else if (!['tcp', 'quic', 'kcp'].contains(transport))
             _field('Path', path, '例如：/ws'),
         ],
 
