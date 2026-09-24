@@ -33,8 +33,14 @@ class SingBoxConfigBuilder {
         _tlsAndTransport(outbound, n);
         break;
       case ProxyProtocol.hysteria2:
-        outbound.addAll({'type': 'hysteria2', 'password': n.password});
-        _tlsAndTransport(outbound, n);
+        outbound.addAll({
+          'type': 'hysteria2',
+          'password': n.password,
+          'tls': {
+            'enabled': true,
+            if (n.sni.isNotEmpty) 'server_name': n.sni,
+          },
+        });
         break;
       case ProxyProtocol.snell:
         // Desktop v0.7.x compatibility logic:
