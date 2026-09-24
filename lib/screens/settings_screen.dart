@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
+import '../state/app_state.dart';
 import '../widgets/gold_card.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -16,6 +18,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 30),
       children: [
@@ -23,7 +26,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 14),
         GoldCard(
           child: Column(children: [
-            _row(Icons.route_outlined, '路由模式', '智能分流'),
+            _row(Icons.route_outlined, '路由模式', state.mode),
             const Divider(),
             _row(Icons.dns_outlined, 'DNS 设置', dns),
             const Divider(),
@@ -38,6 +41,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const Divider(),
             _row(Icons.data_usage_rounded, '流量统计单位', 'GB'),
+            const Divider(),
+            _row(
+              Icons.public_rounded,
+              'GeoIP / GeoSite 地址库',
+              state.updatingGeo ? '更新中…' : state.geoUpdatedText,
+              onTap: state.updatingGeo
+                  ? null
+                  : () async {
+                      try {
+                        await context.read<AppState>().updateGeoAssets();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('GeoIP / GeoSite 更新完成')),
+                          );
+                        }
+                      } catch (_) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Geo 数据更新失败，请查看日志')),
+                          );
+                        }
+                      }
+                    },
+            ),
           ]),
         ),
         const SizedBox(height: 12),
@@ -63,7 +90,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 12),
         GoldCard(
           child: Column(children: [
-            _row(Icons.update_rounded, '检查更新', 'v1.0.0'),
+            _row(Icons.update_rounded, '检查更新', 'v\${state.appVersion}'),
             const Divider(),
             _row(Icons.info_outline, '关于应用', ''),
             const Divider(),
@@ -74,7 +101,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _row(IconData icon, String title, String trailing) => ListTile(
+  Widget _row(
+    IconData icon,
+    String title,
+    String trailing, {
+    VoidCallback? onTap,
+  }) => ListTile(
         contentPadding: EdgeInsets.zero,
         leading: Icon(icon, color: AppColors.gold),
         title: Text(title),
@@ -83,6 +115,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(width: 4),
           const Icon(Icons.chevron_right, color: AppColors.text2),
         ]),
-        onTap: () {},
+        onTap: onTap,
       );
 }
