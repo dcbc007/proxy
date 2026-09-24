@@ -23,7 +23,7 @@ class AppState extends ChangeNotifier {
   bool connecting = false;
   bool coreReady = false;
   String coreVersion = '';
-  String appVersion = '1.1.2';
+  String appVersion = '1.1.3';
   String mode = '智能模式';
   String downloadSpeed = '0 B/s';
   String uploadSpeed = '0 B/s';
