@@ -26,7 +26,9 @@ class VpnEngineService {
   Future<bool> connect(ProxyNode node) async {
     if (!await ensureVpnPermission()) return false;
 
-    await box.setCoreEngine('singbox');
+    final useSingBox = node.protocol == ProxyProtocol.snell ||
+        node.protocol == ProxyProtocol.hysteria2;
+    await box.setCoreEngine(useSingBox ? 'singbox' : 'xray');
     await box.setServiceMode(VpnMode.vpn);
 
     if (node.protocol == ProxyProtocol.snell) {
