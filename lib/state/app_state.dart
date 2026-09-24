@@ -20,7 +20,7 @@ class AppState extends ChangeNotifier {
   bool connecting = false;
   bool coreReady = false;
   String coreVersion = '';
-  String appVersion = '1.0.6';
+  String appVersion = '1.0.7';
   String mode = '智能模式';
   String downloadSpeed = '0 B/s';
   String uploadSpeed = '0 B/s';
@@ -194,7 +194,7 @@ class AppState extends ChangeNotifier {
         await _vpn.disconnect();
         _log('正在断开代理');
       } else {
-        _log('正在连接：${node.name}');
+        _log('正在连接：${node.name} · ${node.protocol.label}');
         final granted = await _vpn.hasVpnPermission();
         if (!granted) {
           _log('等待系统 VPN 授权：请在系统弹窗中选择“允许”');

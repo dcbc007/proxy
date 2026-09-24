@@ -14,7 +14,7 @@ class VpnEngineService {
 
   Future<void> initialize() async {
     await box.initialize(notificationStopButtonText: '断开');
-    await box.setCoreEngine('singbox');
+    await box.setCoreEngine('xray');
     await box.setServiceMode(VpnMode.vpn);
   }
 
