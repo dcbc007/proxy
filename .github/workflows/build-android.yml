@@ -98,6 +98,15 @@ jobs:
         shell: bash
         run: flutter build apk --release --target-platform android-arm64
 
+      - name: Verify sing-box executable packaging
+        shell: bash
+        run: |
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libsingbox.so"
+          APKANALYZER="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          "$APKANALYZER" manifest print "$APK" | tee /tmp/manifest.xml
+          grep -q 'android:extractNativeLibs="true"' /tmp/manifest.xml
+
       - name: Verify stable APK signer
         shell: bash
         run: |
@@ -109,15 +118,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.0.5-arm64.apk
-          sha256sum dist/AurumProxy-1.0.5-arm64.apk > dist/AurumProxy-1.0.5-arm64.apk.sha256
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.0.6-arm64.apk
+          sha256sum dist/AurumProxy-1.0.6-arm64.apk > dist/AurumProxy-1.0.6-arm64.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AurumProxy-1.0.5-arm64
+          name: AurumProxy-1.0.6-arm64
           path: |
-            dist/AurumProxy-1.0.5-arm64.apk
-            dist/AurumProxy-1.0.5-arm64.apk.sha256
+            dist/AurumProxy-1.0.6-arm64.apk
+            dist/AurumProxy-1.0.6-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
