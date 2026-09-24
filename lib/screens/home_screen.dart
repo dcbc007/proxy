@@ -131,7 +131,7 @@ class HomeScreen extends StatelessWidget {
                   children: [
                     const Icon(Icons.shield_outlined, color: AppColors.gold),
                     const SizedBox(width: 10),
-                    Expanded(child: Text(s.coreReady ? 'sing-box 核心已就绪${s.coreVersion.isEmpty ? '' : ' · ${s.coreVersion}'}' : '正在检查代理核心', style: const TextStyle(fontSize: 12, color: AppColors.text2))),
+                    Expanded(child: Text(s.coreReady ? '代理核心已就绪${s.coreVersion.isEmpty ? '' : ' · ${s.coreVersion}'}' : '正在检查代理核心', style: const TextStyle(fontSize: 12, color: AppColors.text2))),
                   ],
                 ),
               ),
