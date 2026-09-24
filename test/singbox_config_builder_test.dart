@@ -124,4 +124,41 @@ void main() {
     expect(node.hy2HopInterval, '30s');
   });
 
+
+  test('HY2 strict certificate link does not disable verification', () {
+    final node = ProxyNode(
+      id: 'hy2-strict',
+      name: 'HY2 strict',
+      protocol: ProxyProtocol.hysteria2,
+      server: 'hy2.example.com',
+      port: 443,
+      password: 'secret',
+      sni: 'hy2.example.com',
+      tlsInsecure: false,
+    );
+
+    final uri = Uri.parse(node.connectionLink);
+    expect(uri.scheme, 'hy2');
+    expect(uri.queryParameters['sni'], 'hy2.example.com');
+    expect(uri.queryParameters.containsKey('insecure'), isFalse);
+    expect(uri.queryParameters.containsKey('allowInsecure'), isFalse);
+  });
+
+  test('HY2 insecure link explicitly carries insecure=1', () {
+    final node = ProxyNode(
+      id: 'hy2-insecure',
+      name: 'HY2 insecure',
+      protocol: ProxyProtocol.hysteria2,
+      server: '192.0.2.1',
+      port: 443,
+      password: 'secret',
+      sni: 'selfsigned.example.com',
+      tlsInsecure: true,
+    );
+
+    final uri = Uri.parse(node.connectionLink);
+    expect(uri.queryParameters['sni'], 'selfsigned.example.com');
+    expect(uri.queryParameters['insecure'], '1');
+  });
+
 }
