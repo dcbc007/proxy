@@ -222,13 +222,13 @@ class SingBoxConfigBuilder {
   }
 
   static List<String> _splitList(String value) => value
-      .split(RegExp(r'[,\\s]+'))
+      .split(RegExp(r'[,\s]+'))
       .map((e) => e.trim())
       .where((e) => e.isNotEmpty)
       .toList();
 
   static List<String> _parseServerPorts(String value) => value
-      .split(RegExp(r'[,\\s]+'))
+      .split(RegExp(r'[,\s]+'))
       .map((e) => e.trim())
       .where((e) => e.isNotEmpty)
       .toList();
