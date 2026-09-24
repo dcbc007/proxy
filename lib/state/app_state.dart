@@ -20,7 +20,7 @@ class AppState extends ChangeNotifier {
   bool connecting = false;
   bool coreReady = false;
   String coreVersion = '';
-  String appVersion = '1.0.3';
+  String appVersion = '1.0.4';
   String mode = '智能模式';
   String downloadSpeed = '0 B/s';
   String uploadSpeed = '0 B/s';
@@ -57,6 +57,8 @@ class AppState extends ChangeNotifier {
     }
     try {
       await _vpn.initialize();
+      final detectedVersion = await _vpn.appVersion();
+      if (detectedVersion.isNotEmpty) appVersion = detectedVersion;
       coreReady = true;
       final info = await _vpn.coreInfo();
       coreVersion = info['version']?.toString() ?? '';
@@ -199,9 +201,9 @@ class AppState extends ChangeNotifier {
         }
         final ok = await _vpn.connect(node);
         if (!ok) {
-          _log('VPN 授权未通过，连接未启动');
-        } else if (!granted) {
-          _log('VPN 已授权，正在启动代理');
+          _log('VPN 授权未通过或等待超时，连接未启动');
+        } else {
+          _log('VPN 权限已确认，启动命令已提交，等待核心连接');
         }
       }
     } catch (e) {

@@ -52,10 +52,35 @@ class VpnEngineService {
 
   Future<bool> ensureVpnPermission() async {
     if (!Platform.isAndroid) return true;
+    if (await hasVpnPermission()) return true;
+
     try {
-      return await _vpnPermissionChannel.invokeMethod<bool>('request') ?? false;
+      final launched =
+          await _vpnPermissionChannel.invokeMethod<bool>('request') ?? false;
+      if (!launched) return false;
     } on PlatformException {
       return false;
+    }
+
+    // Android/OEM builds may deliver the activity result late or differently.
+    // Poll the authoritative VpnService.prepare() state instead of waiting on
+    // an activity-result callback.
+    for (var i = 0; i < 120; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      if (await hasVpnPermission()) {
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Future<String> appVersion() async {
+    if (!Platform.isAndroid) return '';
+    try {
+      return await _vpnPermissionChannel.invokeMethod<String>('version') ?? '';
+    } on PlatformException {
+      return '';
     }
   }
 
