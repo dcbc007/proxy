@@ -210,3 +210,44 @@ if old_json_writer not in bs:
 bs = bs.replace(old_json_writer, new_json_writer, 1)
 bp.write_text(bs, encoding="utf-8")
 print("Patched raw sing-box JSON VPN bridge separation.")
+
+
+# Make status events independent of Activity lifecycle.
+# Some OEMs temporarily detach/null the Flutter Activity around the system VPN
+# consent flow. Upstream only emitted status events through
+# activity?.runOnUiThread, so a final Started event could be lost even though
+# the native service was connected. Emit through the main looper directly.
+vp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/V2rayBoxPlugin.kt")
+vs = vp.read_text(encoding="utf-8")
+
+old_observer = '''        serviceStatus.observeForever { status ->
+            activity?.runOnUiThread {
+                statusEventSink?.success(mapOf("status" to status.name))
+            }
+'''
+new_observer = '''        serviceStatus.observeForever { status ->
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                statusEventSink?.success(mapOf("status" to status.name))
+            }
+'''
+if old_observer not in vs:
+    raise SystemExit("V2rayBoxPlugin serviceStatus observer pattern not found")
+vs = vs.replace(old_observer, new_observer, 1)
+
+old_callback = '''    override fun onServiceStatusChanged(status: Status) {
+        serviceStatus.postValue(status)
+    }
+'''
+new_callback = '''    override fun onServiceStatusChanged(status: Status) {
+        serviceStatus.postValue(status)
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            statusEventSink?.success(mapOf("status" to status.name))
+        }
+    }
+'''
+if old_callback not in vs:
+    raise SystemExit("V2rayBoxPlugin onServiceStatusChanged pattern not found")
+vs = vs.replace(old_callback, new_callback, 1)
+
+vp.write_text(vs, encoding="utf-8")
+print("Patched VPN status event delivery independent of Activity lifecycle.")
