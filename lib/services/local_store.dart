@@ -8,6 +8,7 @@ class LocalStore {
   static const _nodesKey = 'nodes_v1';
   static const _subsKey = 'subscriptions_v1';
   static const _selectedKey = 'selected_node_v1';
+  static const _geoUpdatedKey = 'geo_updated_at_v1';
 
   Future<List<ProxyNode>> loadNodes() async {
     final p = await SharedPreferences.getInstance();
@@ -50,5 +51,17 @@ class LocalStore {
   Future<void> saveSelectedNodeId(String id) async {
     final p = await SharedPreferences.getInstance();
     await p.setString(_selectedKey, id);
+  }
+
+  Future<DateTime?> loadGeoUpdatedAt() async {
+    final p = await SharedPreferences.getInstance();
+    final raw = p.getString(_geoUpdatedKey);
+    if (raw == null || raw.isEmpty) return null;
+    return DateTime.tryParse(raw);
+  }
+
+  Future<void> saveGeoUpdatedAt(DateTime value) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_geoUpdatedKey, value.toIso8601String());
   }
 }
