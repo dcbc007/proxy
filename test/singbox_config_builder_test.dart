@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:aurum_proxy/models/proxy_node.dart';
 import 'package:aurum_proxy/services/singbox_config_builder.dart';
+import 'package:aurum_proxy/services/qr_payload_parser.dart';
 
 void main() {
   test('Snell v5 client config maps to sing-box outbound v4', () {
@@ -103,6 +104,24 @@ void main() {
     expect(outbound['userkey'], 'user-secret');
     expect(outbound['mode'], 'unshaped');
     expect(outbound['network'], 'tcp');
+  });
+
+
+  test('HY2 share link imports skip-certificate and advanced options', () {
+    final node = QrPayloadParser.parse(
+      'hy2://secret@hy2.example.com:443?sni=cdn.example.com&insecure=1&alpn=h3&obfs=salamander&obfs-password=mask&upmbps=120&downmbps=600&mport=20000%3A30000&hop-interval=30s#HY2',
+    );
+
+    expect(node.protocol, ProxyProtocol.hysteria2);
+    expect(node.tlsInsecure, true);
+    expect(node.sni, 'cdn.example.com');
+    expect(node.alpn, 'h3');
+    expect(node.hy2Obfs, 'salamander');
+    expect(node.hy2ObfsPassword, 'mask');
+    expect(node.hy2UpMbps, 120);
+    expect(node.hy2DownMbps, 600);
+    expect(node.hy2ServerPorts, '20000:30000');
+    expect(node.hy2HopInterval, '30s');
   });
 
 }
