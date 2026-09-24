@@ -71,6 +71,10 @@ jobs:
         shell: bash
         run: flutter analyze lib --no-fatal-infos --no-fatal-warnings
 
+      - name: Snell config regression test
+        shell: bash
+        run: flutter test test/singbox_config_builder_test.dart
+
       - name: Prepare pinned libXray source
         shell: bash
         run: |
@@ -118,15 +122,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.0.7-arm64.apk
-          sha256sum dist/AurumProxy-1.0.7-arm64.apk > dist/AurumProxy-1.0.7-arm64.apk.sha256
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.0.8-arm64.apk
+          sha256sum dist/AurumProxy-1.0.8-arm64.apk > dist/AurumProxy-1.0.8-arm64.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AurumProxy-1.0.7-arm64
+          name: AurumProxy-1.0.8-arm64
           path: |
-            dist/AurumProxy-1.0.7-arm64.apk
-            dist/AurumProxy-1.0.7-arm64.apk.sha256
+            dist/AurumProxy-1.0.8-arm64.apk
+            dist/AurumProxy-1.0.8-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14

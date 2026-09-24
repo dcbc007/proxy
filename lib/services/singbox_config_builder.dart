@@ -33,7 +33,11 @@ class SingBoxConfigBuilder {
         _tlsAndTransport(outbound, n);
         break;
       case ProxyProtocol.snell:
-        outbound.addAll({'type': 'snell', 'psk': n.password, 'version': 5});
+        // sing-box outbound intentionally exposes Snell v4/v6 only.
+        // Snell v5's non-QUIC wire protocol is compatible with v4, so a
+        // standard v5 server must be addressed as outbound version 4.
+        // (sing-box intentionally does not implement Snell v5 QUIC mode.)
+        outbound.addAll({'type': 'snell', 'psk': n.password, 'version': 4});
         break;
     }
 

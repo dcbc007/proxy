@@ -20,7 +20,7 @@ class AppState extends ChangeNotifier {
   bool connecting = false;
   bool coreReady = false;
   String coreVersion = '';
-  String appVersion = '1.0.7';
+  String appVersion = '1.0.8';
   String mode = '智能模式';
   String downloadSpeed = '0 B/s';
   String uploadSpeed = '0 B/s';
@@ -63,7 +63,7 @@ class AppState extends ChangeNotifier {
       final info = await _vpn.coreInfo();
       coreVersion = info['version']?.toString() ?? '';
       _wireStreams();
-      _log('sing-box 核心已初始化${coreVersion.isEmpty ? '' : ' · $coreVersion'}');
+      _log('代理核心已初始化${coreVersion.isEmpty ? '' : ' · $coreVersion'}');
     } catch (e) {
       coreReady = false;
       _log('核心初始化失败：$e');
