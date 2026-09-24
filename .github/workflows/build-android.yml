@@ -109,6 +109,13 @@ jobs:
         shell: bash
         run: flutter test
 
+      - name: HY2 and real latency integration test
+        shell: bash
+        run: |
+          curl -fL --retry 3 -o /tmp/singbox-linux.tar.gz https://github.com/SagerNet/sing-box/releases/download/v1.14.1/sing-box-1.14.1-linux-amd64.tar.gz
+          tar -xzf /tmp/singbox-linux.tar.gz -C /tmp
+          python3 tool/smoke_test_singbox.py /tmp/sing-box-1.14.1-linux-amd64/sing-box
+
       - name: Prepare pinned libXray source
         shell: bash
         run: |
