@@ -9,7 +9,9 @@ import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 
 class AddNodeScreen extends StatefulWidget {
-  const AddNodeScreen({super.key});
+  const AddNodeScreen({super.key, this.node});
+
+  final ProxyNode? node;
 
   @override
   State<AddNodeScreen> createState() => _AddNodeScreenState();
@@ -33,6 +35,33 @@ class _AddNodeScreenState extends State<AddNodeScreen> with SingleTickerProvider
   final flow = TextEditingController();
   final fingerprint = TextEditingController(text: 'chrome');
   bool scanned = false;
+  int snellVersion = 5;
+
+  bool get editing => widget.node != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final n = widget.node;
+    if (n == null) return;
+    protocol = n.protocol;
+    name.text = n.name;
+    server.text = n.server;
+    port.text = n.port.toString();
+    credential.text = [ProxyProtocol.vless, ProxyProtocol.vmess].contains(n.protocol)
+        ? n.uuid
+        : n.password;
+    method.text = n.method.isEmpty ? 'aes-256-gcm' : n.method;
+    transport = n.transport.isEmpty ? 'tcp' : n.transport;
+    security = n.security.isEmpty ? 'none' : n.security;
+    sni.text = n.sni;
+    path.text = n.path;
+    publicKey.text = n.publicKey;
+    shortId.text = n.shortId;
+    flow.text = n.flow;
+    fingerprint.text = n.fingerprint.isEmpty ? 'chrome' : n.fingerprint;
+    snellVersion = n.snellVersion;
+  }
 
   @override
   void dispose() {
@@ -48,7 +77,7 @@ class _AddNodeScreenState extends State<AddNodeScreen> with SingleTickerProvider
     return Scaffold(
       backgroundColor: AppColors.bg,
       appBar: AppBar(
-        title: const Text('添加节点', style: TextStyle(fontWeight: FontWeight.w800)),
+        title: Text(editing ? '编辑节点' : '添加节点', style: const TextStyle(fontWeight: FontWeight.w800)),
         actions: [TextButton(onPressed: _saveManual, child: const Text('保存'))],
       ),
       body: Column(
@@ -89,11 +118,26 @@ class _AddNodeScreenState extends State<AddNodeScreen> with SingleTickerProvider
         _field('端口', port, '443', keyboardType: TextInputType.number),
         _field(_credentialLabel, credential, _credentialHint, obscureText: true),
         if (protocol == ProxyProtocol.shadowsocks) _field('加密方式', method, 'aes-256-gcm'),
-        if (protocol == ProxyProtocol.snell)
-          const Padding(
-            padding: EdgeInsets.only(top: 12),
-            child: Text('Snell 手动节点按 v5 配置生成。', style: TextStyle(color: AppColors.text2, fontSize: 11)),
+        if (protocol == ProxyProtocol.snell) ...[
+          const SizedBox(height: 14),
+          _label('Snell 版本'),
+          DropdownButtonFormField<int>(
+            value: snellVersion,
+            items: const [
+              DropdownMenuItem(value: 4, child: Text('Snell v4')),
+              DropdownMenuItem(value: 5, child: Text('Snell v5（兼容模式）')),
+              DropdownMenuItem(value: 6, child: Text('Snell v6')),
+            ],
+            onChanged: (v) => setState(() => snellVersion = v ?? 5),
           ),
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+              '沿用电脑端 v0.7.x 逻辑：普通 v5 按 v4 线路兼容运行；v5 QUIC 模式暂不支持。',
+              style: TextStyle(color: AppColors.text2, fontSize: 11, height: 1.4),
+            ),
+          ),
+        ],
         if (supportsTransport) ...[
           const SizedBox(height: 14),
           _label('传输方式'),
@@ -135,7 +179,7 @@ class _AddNodeScreenState extends State<AddNodeScreen> with SingleTickerProvider
             minimumSize: const Size.fromHeight(52),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
-          child: const Text('保存节点', style: TextStyle(fontWeight: FontWeight.w800)),
+          child: Text(editing ? '保存修改' : '保存节点', style: const TextStyle(fontWeight: FontWeight.w800)),
         ),
       ],
     );
@@ -251,8 +295,9 @@ class _AddNodeScreenState extends State<AddNodeScreen> with SingleTickerProvider
       _toast('认证信息不能为空');
       return;
     }
+    final old = widget.node;
     final n = ProxyNode(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      id: old?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
       name: name.text.trim().isEmpty ? '${protocol.label} 节点' : name.text.trim(),
       protocol: protocol,
       server: server.text.trim(),
@@ -268,8 +313,18 @@ class _AddNodeScreenState extends State<AddNodeScreen> with SingleTickerProvider
       shortId: shortId.text.trim(),
       flow: flow.text.trim(),
       fingerprint: fingerprint.text.trim(),
+      snellVersion: snellVersion,
+      favorite: old?.favorite ?? false,
+      latencyMs: old?.latencyMs,
+      remark: old?.remark ?? '',
+      sourceLink: '',
     );
-    await context.read<AppState>().addNode(n);
+    final state = context.read<AppState>();
+    if (editing) {
+      await state.updateNode(n);
+    } else {
+      await state.addNode(n);
+    }
     if (mounted) Navigator.pop(context);
   }
 
