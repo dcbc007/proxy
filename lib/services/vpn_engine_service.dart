@@ -42,10 +42,7 @@ class VpnEngineService {
     if (useSingBox) {
       final geoDir = await _geo.filesDir;
 
-      final useBuilder = node.protocol == ProxyProtocol.snell ||
-          (node.protocol == ProxyProtocol.hysteria2 &&
-              node.sourceLink.trim().isEmpty);
-      if (useBuilder) {
+      if (node.protocol == ProxyProtocol.snell) {
         final json = SingBoxConfigBuilder.fromNode(
           node,
           mode: mode,
@@ -56,9 +53,12 @@ class VpnEngineService {
             .timeout(const Duration(seconds: 15), onTimeout: () => false);
       }
 
-      // Imported HY2 links retain their raw source link so unknown/future
-      // parameters remain intact. Manually created or edited HY2 nodes use the
-      // explicit builder above, guaranteeing advanced UI fields take effect.
+      // Keep Hysteria2 on the core's native share-link parser for both
+      // verified certificates and insecure/self-signed certificates.
+      // ProxyNode.connectionLink already carries the advanced HY2 fields
+      // (SNI, insecure, ALPN, obfs, bandwidth, port hopping, etc.).
+      // This restores the certificate compatibility path used by 1.1.1 while
+      // preserving the new 1.1.2 options.
       final generated = await box.generateConfig(node.connectionLink);
       if (generated.trim().isEmpty) return false;
       final routed = SingBoxConfigRouter.apply(
@@ -129,9 +129,7 @@ class VpnEngineService {
           .timeout(const Duration(seconds: 9), onTimeout: () => -1);
     }
     if (!Platform.isAndroid) return -1;
-    final raw = node.protocol == ProxyProtocol.snell ||
-            (node.protocol == ProxyProtocol.hysteria2 &&
-                node.sourceLink.trim().isEmpty)
+    final raw = node.protocol == ProxyProtocol.snell
         ? SingBoxConfigBuilder.fromNode(node, mode: '全局模式')
         : await box.generateConfig(node.connectionLink);
     if (raw.trim().isEmpty) return -1;
