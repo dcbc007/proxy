@@ -128,7 +128,7 @@ class VpnEngineService {
       await response.drain<void>();
       sw.stop();
       if (response.statusCode >= 200 && response.statusCode < 500) {
-        return sw.elapsedMilliseconds.clamp(1, 60000);
+        return sw.elapsedMilliseconds.clamp(1, 60000).toInt();
       }
     } catch (_) {
       // Fall through to -1.
