@@ -80,6 +80,37 @@ ss = ss.replace(
 '''
 )
 
+
+ss = ss.replace(
+    '''            val workDir = context.getExternalFilesDir(null) ?: context.filesDir
+            Log.d(TAG, "Starting sing-box: $binaryPath run -c $configPath -D ${workDir.absolutePath}")
+
+            val pb = ProcessBuilder(binaryPath, "run", "-c", configPath, "-D", workDir.absolutePath)
+''',
+    '''            val workDir = context.getExternalFilesDir(null) ?: context.filesDir
+
+            // Validate the generated config before starting the long-running
+            // process. This surfaces the actual sing-box schema/parser error
+            // instead of only returning a generic exit code 1.
+            val checkProc = ProcessBuilder(binaryPath, "check", "-c", configPath)
+                .directory(workDir)
+                .redirectErrorStream(true)
+                .start()
+            val checkOutput = checkProc.inputStream.bufferedReader().readText().trim()
+            val checkExit = checkProc.waitFor()
+            if (checkExit != 0) {
+                lastError = "config check failed (code=$checkExit): " +
+                    checkOutput.takeLast(2000)
+                Log.e(TAG, lastError)
+                return false
+            }
+
+            Log.d(TAG, "Starting sing-box: $binaryPath run -c $configPath -D ${workDir.absolutePath}")
+
+            val pb = ProcessBuilder(binaryPath, "run", "-c", configPath, "-D", workDir.absolutePath)
+'''
+)
+
 ss = ss.replace(
     '''            if (proc.isAlive) {
                 Log.d(TAG, "sing-box started successfully")
