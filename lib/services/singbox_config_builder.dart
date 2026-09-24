@@ -24,6 +24,9 @@ class SingBoxConfigBuilder {
           'type': 'shadowsocks',
           'method': n.method,
           'password': n.password,
+          if (n.plugin.isNotEmpty) 'plugin': n.plugin,
+          if (n.pluginOpts.isNotEmpty) 'plugin_opts': n.pluginOpts,
+          if (n.network.isNotEmpty) 'network': n.network,
         });
         break;
       case ProxyProtocol.vless:
@@ -31,22 +34,56 @@ class SingBoxConfigBuilder {
           'type': 'vless',
           'uuid': n.uuid,
           if (n.flow.isNotEmpty) 'flow': n.flow,
+          if (n.network.isNotEmpty) 'network': n.network,
+          if (n.packetEncoding.isNotEmpty) 'packet_encoding': n.packetEncoding,
         });
         _tlsAndTransport(outbound, n);
         break;
       case ProxyProtocol.vmess:
-        outbound.addAll({'type': 'vmess', 'uuid': n.uuid, 'security': 'auto'});
+        outbound.addAll({
+          'type': 'vmess',
+          'uuid': n.uuid,
+          'security': n.vmessSecurity.isEmpty ? 'auto' : n.vmessSecurity,
+          if (n.alterId > 0) 'alter_id': n.alterId,
+          if (n.network.isNotEmpty) 'network': n.network,
+          if (n.packetEncoding.isNotEmpty) 'packet_encoding': n.packetEncoding,
+        });
         _tlsAndTransport(outbound, n);
         break;
       case ProxyProtocol.trojan:
-        outbound.addAll({'type': 'trojan', 'password': n.password});
+        outbound.addAll({
+          'type': 'trojan',
+          'password': n.password,
+          if (n.network.isNotEmpty) 'network': n.network,
+        });
         _tlsAndTransport(outbound, n);
         break;
       case ProxyProtocol.hysteria2:
         outbound.addAll({
           'type': 'hysteria2',
           'password': n.password,
-          'tls': {'enabled': true, if (n.sni.isNotEmpty) 'server_name': n.sni},
+          if (n.hy2ServerPorts.isNotEmpty)
+            'server_ports': _parseServerPorts(n.hy2ServerPorts),
+          if (n.hy2HopInterval.isNotEmpty) 'hop_interval': n.hy2HopInterval,
+          if (n.hy2HopIntervalMax.isNotEmpty)
+            'hop_interval_max': n.hy2HopIntervalMax,
+          if (n.hy2UpMbps > 0) 'up_mbps': n.hy2UpMbps,
+          if (n.hy2DownMbps > 0) 'down_mbps': n.hy2DownMbps,
+          if (n.hy2Obfs.isNotEmpty)
+            'obfs': {
+              'type': n.hy2Obfs,
+              if (n.hy2ObfsPassword.isNotEmpty)
+                'password': n.hy2ObfsPassword,
+            },
+          if (n.network.isNotEmpty) 'network': n.network,
+          if (n.hy2BbrProfile.isNotEmpty) 'bbr_profile': n.hy2BbrProfile,
+          if (n.hy2DisableChromeParrot) 'disable_chrome_parrot': true,
+          'tls': {
+            'enabled': true,
+            if (n.sni.isNotEmpty) 'server_name': n.sni,
+            if (n.tlsInsecure) 'insecure': true,
+            if (n.alpn.trim().isNotEmpty) 'alpn': _splitList(n.alpn),
+          },
         });
         break;
       case ProxyProtocol.snell:
@@ -58,7 +95,15 @@ class SingBoxConfigBuilder {
           'type': 'snell',
           'psk': n.password,
           'version': runtimeVersion,
-          'reuse': true,
+          'reuse': n.snellReuse,
+          if (n.snellUserKey.isNotEmpty) 'userkey': n.snellUserKey,
+          if (n.network.isNotEmpty) 'network': n.network,
+          if (runtimeVersion == 4 && n.snellObfsMode.isNotEmpty)
+            'obfs_mode': n.snellObfsMode,
+          if (runtimeVersion == 4 && n.snellObfsHost.isNotEmpty)
+            'obfs_host': n.snellObfsHost,
+          if (runtimeVersion == 6 && n.snellMode.isNotEmpty)
+            'mode': n.snellMode,
         });
         break;
     }
@@ -150,6 +195,8 @@ class SingBoxConfigBuilder {
       outbound['tls'] = {
         'enabled': true,
         if (n.sni.isNotEmpty) 'server_name': n.sni,
+        if (n.tlsInsecure) 'insecure': true,
+        if (n.alpn.trim().isNotEmpty) 'alpn': _splitList(n.alpn),
         if (n.fingerprint.isNotEmpty)
           'utls': {'enabled': true, 'fingerprint': n.fingerprint},
         if (sec == 'reality')
@@ -163,8 +210,26 @@ class SingBoxConfigBuilder {
     if (n.transport != 'tcp' && n.transport.isNotEmpty) {
       outbound['transport'] = {
         'type': n.transport,
-        if (n.path.isNotEmpty) 'path': n.path,
+        if (n.transport == 'grpc' && n.path.isNotEmpty)
+          'service_name': n.path,
+        if (n.transport != 'grpc' && n.path.isNotEmpty) 'path': n.path,
+        if (n.host.isNotEmpty && n.transport == 'http') 'host': [n.host],
+        if (n.host.isNotEmpty &&
+            (n.transport == 'ws' || n.transport == 'httpupgrade'))
+          'headers': {'Host': n.host},
       };
     }
   }
+
+  static List<String> _splitList(String value) => value
+      .split(RegExp(r'[,\\s]+'))
+      .map((e) => e.trim())
+      .where((e) => e.isNotEmpty)
+      .toList();
+
+  static List<String> _parseServerPorts(String value) => value
+      .split(RegExp(r'[,\\s]+'))
+      .map((e) => e.trim())
+      .where((e) => e.isNotEmpty)
+      .toList();
 }
