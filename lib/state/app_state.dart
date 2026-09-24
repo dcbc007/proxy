@@ -209,8 +209,7 @@ class AppState extends ChangeNotifier {
   Future<void> duplicateNode(ProxyNode node) async {
     final copy = ProxyNode.fromJson(node.toJson())
       ..id = DateTime.now().microsecondsSinceEpoch.toString()
-      ..name = '${node.name} 副本'
-      ..sourceLink = '';
+      ..name = '${node.name} 副本';
     nodes.insert(0, copy);
     await _store.saveNodes(nodes);
     _log('复制节点：${copy.name}');
