@@ -5,12 +5,15 @@ import 'package:v2ray_box/v2ray_box.dart';
 
 import '../models/proxy_node.dart';
 import 'singbox_config_builder.dart';
+import 'geo_asset_service.dart';
+import 'xray_config_router.dart';
 
 class VpnEngineService {
   static const MethodChannel _vpnPermissionChannel =
       MethodChannel('aurum_proxy/vpn_permission');
 
   final V2rayBox box = V2rayBox();
+  final GeoAssetService _geo = GeoAssetService();
 
   Future<void> initialize() async {
     await box.initialize(notificationStopButtonText: '断开');
@@ -23,7 +26,10 @@ class VpnEngineService {
   Stream<Map<String, dynamic>> watchLogs() => box.watchLogs();
   Stream<Map<String, dynamic>> watchAlerts() => box.watchAlerts();
 
-  Future<bool> connect(ProxyNode node) async {
+  Future<bool> connect(
+    ProxyNode node, {
+    String mode = '智能模式',
+  }) async {
     if (!await ensureVpnPermission()) return false;
 
     final useSingBox = node.protocol == ProxyProtocol.snell ||
@@ -31,17 +37,24 @@ class VpnEngineService {
     await box.setCoreEngine(useSingBox ? 'singbox' : 'xray');
     await box.setServiceMode(VpnMode.vpn);
 
-    if (node.protocol == ProxyProtocol.snell) {
-      // v2ray_box's share-link parser does not parse snell:// links. Build the
-      // sing-box config explicitly so the protocol-version compatibility
-      // mapping is deterministic and validated before startup.
+    if (useSingBox) {
+      final geoDir = await _geo.filesDir;
+      final json = SingBoxConfigBuilder.fromNode(
+        node,
+        mode: mode,
+        geoDir: geoDir,
+      );
       return box
-          .connectWithJson(SingBoxConfigBuilder.fromNode(node), name: node.name)
-          .timeout(const Duration(seconds: 12), onTimeout: () => false);
+          .connectWithJson(json, name: node.name)
+          .timeout(const Duration(seconds: 15), onTimeout: () => false);
     }
+
+    final generated = await box.generateConfig(node.connectionLink);
+    if (generated.trim().isEmpty) return false;
+    final routed = XrayConfigRouter.apply(generated, mode);
     return box
-        .connect(node.connectionLink, name: node.name, notificationTitle: 'Aurum Proxy')
-        .timeout(const Duration(seconds: 12), onTimeout: () => false);
+        .connectWithJson(routed, name: node.name)
+        .timeout(const Duration(seconds: 15), onTimeout: () => false);
   }
 
   Future<bool> disconnect() => box.disconnect();
@@ -90,12 +103,8 @@ class VpnEngineService {
   }
 
   Future<void> setRoutingMode(String mode) async {
-    final coreMode = switch (mode) {
-      '全局模式' => 'global',
-      '直连模式' => 'direct',
-      _ => 'rule',
-    };
-    await box.setClashMode(coreMode);
+    // Routing is compiled into the active core configuration. The caller
+    // reconnects the current node after switching mode.
   }
 
   Future<Map<String, dynamic>> parseSubscription(String url) => box.parseSubscription(url);
