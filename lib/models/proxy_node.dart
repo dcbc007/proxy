@@ -46,6 +46,7 @@ class ProxyNode {
     this.remark = '',
     this.favorite = false,
     this.latencyMs,
+    this.snellVersion = 5,
   });
 
   String id;
@@ -69,6 +70,7 @@ class ProxyNode {
   String remark;
   bool favorite;
   int? latencyMs;
+  int snellVersion;
 
   String get connectionLink => sourceLink.trim().isNotEmpty ? sourceLink.trim() : _buildLink();
 
@@ -119,7 +121,14 @@ class ProxyNode {
         };
         return 'vmess://${base64Url.encode(utf8.encode(jsonEncode(payload))).replaceAll('=', '')}';
       case ProxyProtocol.snell:
-        return Uri(scheme: 'snell', userInfo: password, host: server, port: port, queryParameters: const {'version': '5'}, fragment: name).toString();
+        return Uri(
+          scheme: 'snell',
+          userInfo: password,
+          host: server,
+          port: port,
+          queryParameters: {'version': snellVersion.toString()},
+          fragment: name,
+        ).toString();
     }
   }
 
@@ -147,6 +156,7 @@ class ProxyNode {
         'remark': remark,
         'favorite': favorite,
         'latencyMs': latencyMs,
+        'snellVersion': snellVersion,
       };
 
   factory ProxyNode.fromJson(Map<String, dynamic> j) => ProxyNode(
@@ -171,6 +181,9 @@ class ProxyNode {
         remark: j['remark']?.toString() ?? '',
         favorite: j['favorite'] == true,
         latencyMs: (j['latencyMs'] as num?)?.toInt(),
+        snellVersion: (j['snellVersion'] as num?)?.toInt() ??
+            int.tryParse(j['snellVersion']?.toString() ?? '') ??
+            5,
       );
 
   static String encodeList(List<ProxyNode> nodes) => jsonEncode(nodes.map((e) => e.toJson()).toList());

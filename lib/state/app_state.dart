@@ -7,10 +7,12 @@ import '../services/local_store.dart';
 import '../services/qr_payload_parser.dart';
 import '../services/subscription_fetcher.dart';
 import '../services/vpn_engine_service.dart';
+import '../services/geo_asset_service.dart';
 
 class AppState extends ChangeNotifier {
   final LocalStore _store = LocalStore();
   final VpnEngineService _vpn = VpnEngineService();
+  final GeoAssetService _geo = GeoAssetService();
 
   List<ProxyNode> nodes = [];
   List<ProxySubscription> subscriptions = [];
@@ -20,17 +22,21 @@ class AppState extends ChangeNotifier {
   bool connecting = false;
   bool coreReady = false;
   String coreVersion = '';
-  String appVersion = '1.0.11';
+  String appVersion = '1.1.0';
   String mode = '智能模式';
   String downloadSpeed = '0 B/s';
   String uploadSpeed = '0 B/s';
   Duration connectedDuration = Duration.zero;
+  DateTime? geoUpdatedAt;
+  bool updatingGeo = false;
 
   StreamSubscription? _statusSub;
   StreamSubscription? _statsSub;
   StreamSubscription? _logsSub;
   StreamSubscription? _alertsSub;
   Timer? _timer;
+  Timer? _latencyTimer;
+  bool _latencyBusy = false;
   DateTime? _connectedAt;
 
   ProxyNode? get selectedNode {
@@ -52,10 +58,12 @@ class AppState extends ChangeNotifier {
     nodes = await _store.loadNodes();
     subscriptions = await _store.loadSubscriptions();
     selectedNodeId = await _store.loadSelectedNodeId();
+    geoUpdatedAt = await _store.loadGeoUpdatedAt();
     if (selectedNodeId != null && !nodes.any((n) => n.id == selectedNodeId)) {
       selectedNodeId = nodes.isEmpty ? null : nodes.first.id;
     }
     try {
+      await _geo.bootstrap();
       await _vpn.initialize();
       final detectedVersion = await _vpn.appVersion();
       if (detectedVersion.isNotEmpty) appVersion = detectedVersion;
@@ -81,9 +89,12 @@ class AppState extends ChangeNotifier {
       final name = status.name;
       connecting = name == 'starting' || name == 'stopping';
       final nowConnected = name == 'started';
-      if (nowConnected && !connected) {
+      final wasConnected = connected;
+      connected = nowConnected;
+      if (nowConnected && !wasConnected) {
         _connectedAt = DateTime.now();
         _startTimer();
+        _startLatencyTimer();
       }
       if (!nowConnected && name == 'stopped') {
         _connectedAt = null;
@@ -91,8 +102,8 @@ class AppState extends ChangeNotifier {
         downloadSpeed = '0 B/s';
         uploadSpeed = '0 B/s';
         _timer?.cancel();
+        _latencyTimer?.cancel();
       }
-      connected = nowConnected;
       notifyListeners();
     }, onError: (Object e) => _logAndNotify('状态流错误：$e'));
 
@@ -124,6 +135,7 @@ class AppState extends ChangeNotifier {
         connecting = false;
         _connectedAt ??= DateTime.now();
         _startTimer();
+        _startLatencyTimer();
       }
       return;
     }
@@ -137,6 +149,7 @@ class AppState extends ChangeNotifier {
         downloadSpeed = '0 B/s';
         uploadSpeed = '0 B/s';
         _timer?.cancel();
+        _latencyTimer?.cancel();
       }
     }
   }
@@ -157,6 +170,10 @@ class AppState extends ChangeNotifier {
     await _store.saveSelectedNodeId(id);
     _log('选择节点：${selectedNode?.name ?? id}');
     notifyListeners();
+    final node = selectedNode;
+    if (node != null) {
+      unawaited(testLatency(node, logResult: false));
+    }
   }
 
   Future<void> addNode(ProxyNode node) async {
@@ -171,6 +188,32 @@ class AppState extends ChangeNotifier {
     await _store.saveNodes(nodes);
     if (selectedNodeId != null) await _store.saveSelectedNodeId(selectedNodeId!);
     _log('新增节点：${node.name}');
+    notifyListeners();
+  }
+
+  Future<void> updateNode(ProxyNode updated) async {
+    final index = nodes.indexWhere((n) => n.id == updated.id);
+    if (index < 0) return;
+    final wasSelected = selectedNodeId == updated.id;
+    if (wasSelected && connected) {
+      await _vpn.disconnect();
+    }
+    nodes[index] = updated;
+    await _store.saveNodes(nodes);
+    _log('更新节点：${updated.name}');
+    notifyListeners();
+    if (wasSelected) {
+      unawaited(testLatency(updated, logResult: false));
+    }
+  }
+
+  Future<void> duplicateNode(ProxyNode node) async {
+    final copy = ProxyNode.fromJson(node.toJson())
+      ..id = DateTime.now().microsecondsSinceEpoch.toString()
+      ..name = '${node.name} 副本';
+    nodes.insert(0, copy);
+    await _store.saveNodes(nodes);
+    _log('复制节点：${copy.name}');
     notifyListeners();
   }
 
@@ -189,18 +232,45 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> testLatency(ProxyNode node) async {
-    if (!coreReady) return;
+  Future<void> testLatency(
+    ProxyNode node, {
+    bool logResult = true,
+  }) async {
+    if (!coreReady || _latencyBusy) return;
+    _latencyBusy = true;
     try {
-      final latency = await _vpn.ping(node);
+      final latency = await _vpn.ping(
+        node,
+        allowTunnelFallback: connected && selectedNodeId == node.id,
+      );
       node.latencyMs = latency > 0 ? latency : null;
       await _store.saveNodes(nodes);
-      _log(latency > 0 ? '延迟测试：${node.name} $latency ms' : '延迟测试失败：${node.name}');
+      if (logResult) {
+        _log(latency > 0
+            ? '延迟测试：${node.name} $latency ms'
+            : '延迟测试失败：${node.name}');
+      }
     } catch (e) {
       node.latencyMs = null;
-      _log('延迟测试失败：${node.name} · $e');
+      if (logResult) _log('延迟测试失败：${node.name} · $e');
+    } finally {
+      _latencyBusy = false;
     }
     notifyListeners();
+  }
+
+  void _startLatencyTimer() {
+    _latencyTimer?.cancel();
+    final node = selectedNode;
+    if (node != null) {
+      unawaited(testLatency(node, logResult: false));
+    }
+    _latencyTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      final current = selectedNode;
+      if (connected && current != null) {
+        unawaited(testLatency(current, logResult: false));
+      }
+    });
   }
 
   Future<void> toggleConnection() async {
@@ -228,7 +298,7 @@ class AppState extends ChangeNotifier {
         }
         _log('VPN 授权窗口已结束，正在启动 VPN 服务');
         notifyListeners();
-        final ok = await _vpn.connect(node);
+        final ok = await _vpn.connect(node, mode: mode);
         if (!ok) {
           _log('VPN 服务启动请求超时或失败');
         } else {
@@ -306,16 +376,67 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> setMode(String value) async {
+    if (mode == value) return;
     mode = value;
+    _log('切换模式：$value');
     notifyListeners();
-    if (coreReady) {
-      try {
-        await _vpn.setRoutingMode(value);
-        _log('切换模式：$value');
-      } catch (e) {
-        _log('路由模式切换失败：$e');
-      }
+
+    final node = selectedNode;
+    if (!coreReady || !connected || node == null) return;
+
+    try {
+      connecting = true;
+      notifyListeners();
+      await _vpn.disconnect();
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      final ok = await _vpn.connect(node, mode: mode);
+      _log(ok
+          ? '路由模式已生效：$value'
+          : '路由模式切换失败：VPN 未重新启动');
+    } catch (e) {
+      _log('路由模式切换失败：$e');
+    } finally {
+      connecting = false;
+      notifyListeners();
     }
+  }
+
+  Future<void> updateGeoAssets() async {
+    if (updatingGeo) return;
+    updatingGeo = true;
+    _log('开始更新 GeoIP / GeoSite 地址库');
+    notifyListeners();
+    try {
+      final updated = await _geo.updateAll();
+      geoUpdatedAt = updated;
+      await _store.saveGeoUpdatedAt(updated);
+      _log('GeoIP / GeoSite 地址库更新完成');
+
+      final node = selectedNode;
+      if (connected && mode == '智能模式' && node != null) {
+        _log('正在重新加载智能分流规则');
+        await _vpn.disconnect();
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        await _vpn.connect(node, mode: mode);
+      }
+    } catch (e) {
+      _log('GeoIP / GeoSite 更新失败：$e');
+      rethrow;
+    } finally {
+      updatingGeo = false;
+      notifyListeners();
+    }
+  }
+
+  String get geoUpdatedText {
+    final value = geoUpdatedAt;
+    if (value == null) return '内置数据库';
+    final y = value.year.toString();
+    final m = value.month.toString().padLeft(2, '0');
+    final d = value.day.toString().padLeft(2, '0');
+    final hh = value.hour.toString().padLeft(2, '0');
+    final mm = value.minute.toString().padLeft(2, '0');
+    return '$y-$m-$d $hh:$mm';
   }
 
   void clearLogs() {
@@ -344,6 +465,7 @@ class AppState extends ChangeNotifier {
     _logsSub?.cancel();
     _alertsSub?.cancel();
     _timer?.cancel();
+    _latencyTimer?.cancel();
     super.dispose();
   }
 }

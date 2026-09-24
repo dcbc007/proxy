@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/proxy_node.dart';
@@ -100,11 +101,51 @@ class _NodesScreenState extends State<NodesScreen> {
                         onTap: () => s.testLatency(n),
                         child: Text('${n.latencyMs ?? '--'} ms', style: TextStyle(color: _latencyColor(n.latencyMs), fontWeight: FontWeight.w700, fontSize: 12)),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 8),
                       IconButton(
                         visualDensity: VisualDensity.compact,
                         onPressed: () => s.toggleFavorite(n),
                         icon: Icon(n.favorite ? Icons.star_rounded : Icons.star_border_rounded, color: n.favorite ? AppColors.gold : AppColors.text2),
+                      ),
+                      PopupMenuButton<String>(
+                        tooltip: '节点操作',
+                        color: AppColors.card2,
+                        icon: const Icon(Icons.more_vert, color: AppColors.text2),
+                        onSelected: (value) async {
+                          switch (value) {
+                            case 'edit':
+                              if (!context.mounted) return;
+                              await Navigator.of(context).push(
+                                MaterialPageRoute(builder: (_) => AddNodeScreen(node: n)),
+                              );
+                              break;
+                            case 'copy_link':
+                              await Clipboard.setData(ClipboardData(text: n.connectionLink));
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('节点链接已复制')),
+                                );
+                              }
+                              break;
+                            case 'duplicate':
+                              await s.duplicateNode(n);
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('已复制为新节点')),
+                                );
+                              }
+                              break;
+                            case 'delete':
+                              await s.deleteNode(n.id);
+                              break;
+                          }
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit_outlined), title: Text('编辑节点'))),
+                          PopupMenuItem(value: 'copy_link', child: ListTile(leading: Icon(Icons.link), title: Text('复制节点链接'))),
+                          PopupMenuItem(value: 'duplicate', child: ListTile(leading: Icon(Icons.copy_all_outlined), title: Text('复制节点'))),
+                          PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete_outline), title: Text('删除节点'))),
+                        ],
                       ),
                     ],
                   ),

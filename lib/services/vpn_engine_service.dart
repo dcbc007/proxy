@@ -5,12 +5,16 @@ import 'package:v2ray_box/v2ray_box.dart';
 
 import '../models/proxy_node.dart';
 import 'singbox_config_builder.dart';
+import 'geo_asset_service.dart';
+import 'xray_config_router.dart';
+import 'singbox_config_router.dart';
 
 class VpnEngineService {
   static const MethodChannel _vpnPermissionChannel =
       MethodChannel('aurum_proxy/vpn_permission');
 
   final V2rayBox box = V2rayBox();
+  final GeoAssetService _geo = GeoAssetService();
 
   Future<void> initialize() async {
     await box.initialize(notificationStopButtonText: '断开');
@@ -23,7 +27,10 @@ class VpnEngineService {
   Stream<Map<String, dynamic>> watchLogs() => box.watchLogs();
   Stream<Map<String, dynamic>> watchAlerts() => box.watchAlerts();
 
-  Future<bool> connect(ProxyNode node) async {
+  Future<bool> connect(
+    ProxyNode node, {
+    String mode = '智能模式',
+  }) async {
     if (!await ensureVpnPermission()) return false;
 
     final useSingBox = node.protocol == ProxyProtocol.snell ||
@@ -31,17 +38,41 @@ class VpnEngineService {
     await box.setCoreEngine(useSingBox ? 'singbox' : 'xray');
     await box.setServiceMode(VpnMode.vpn);
 
-    if (node.protocol == ProxyProtocol.snell) {
-      // v2ray_box's share-link parser does not parse snell:// links. Build the
-      // sing-box config explicitly so the protocol-version compatibility
-      // mapping is deterministic and validated before startup.
+    if (useSingBox) {
+      final geoDir = await _geo.filesDir;
+
+      if (node.protocol == ProxyProtocol.snell) {
+        final json = SingBoxConfigBuilder.fromNode(
+          node,
+          mode: mode,
+          geoDir: geoDir,
+        );
+        return box
+            .connectWithJson(json, name: node.name)
+            .timeout(const Duration(seconds: 15), onTimeout: () => false);
+      }
+
+      // Preserve the complete Hysteria2 share-link semantics (obfs, insecure,
+      // bandwidth and future fields) by letting sing-box/v2ray_box parse the
+      // link first, then only replacing the routing section.
+      final generated = await box.generateConfig(node.connectionLink);
+      if (generated.trim().isEmpty) return false;
+      final routed = SingBoxConfigRouter.apply(
+        generated,
+        mode: mode,
+        geoDir: geoDir,
+      );
       return box
-          .connectWithJson(SingBoxConfigBuilder.fromNode(node), name: node.name)
-          .timeout(const Duration(seconds: 12), onTimeout: () => false);
+          .connectWithJson(routed, name: node.name)
+          .timeout(const Duration(seconds: 15), onTimeout: () => false);
     }
+
+    final generated = await box.generateConfig(node.connectionLink);
+    if (generated.trim().isEmpty) return false;
+    final routed = XrayConfigRouter.apply(generated, mode);
     return box
-        .connect(node.connectionLink, name: node.name, notificationTitle: 'Aurum Proxy')
-        .timeout(const Duration(seconds: 12), onTimeout: () => false);
+        .connectWithJson(routed, name: node.name)
+        .timeout(const Duration(seconds: 15), onTimeout: () => false);
   }
 
   Future<bool> disconnect() => box.disconnect();
@@ -84,18 +115,50 @@ class VpnEngineService {
     }
   }
 
-  Future<int> ping(ProxyNode node) async {
+  Future<int> ping(
+    ProxyNode node, {
+    bool allowTunnelFallback = false,
+  }) async {
     if (node.protocol == ProxyProtocol.snell) return -1;
-    return box.ping(node.connectionLink, timeout: 7000);
+    final value = await box.ping(node.connectionLink, timeout: 7000);
+    if (value > 0) return value;
+
+    // libXray's standalone URL tester does not understand every sing-box-only
+    // protocol (notably Hysteria2). When that node is already connected, time
+    // a small HTTPS request through the active Android VPN as the effective
+    // tunnel latency shown on Home.
+    if (allowTunnelFallback && node.protocol == ProxyProtocol.hysteria2) {
+      return _measureActiveTunnelLatency();
+    }
+    return -1;
+  }
+
+  Future<int> _measureActiveTunnelLatency() async {
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 5);
+    final sw = Stopwatch()..start();
+    try {
+      final request = await client.getUrl(
+        Uri.parse('https://www.gstatic.com/generate_204'),
+      );
+      request.followRedirects = false;
+      final response = await request.close().timeout(const Duration(seconds: 7));
+      await response.drain<void>();
+      sw.stop();
+      if (response.statusCode >= 200 && response.statusCode < 500) {
+        return sw.elapsedMilliseconds.clamp(1, 60000).toInt();
+      }
+    } catch (_) {
+      // Fall through to -1.
+    } finally {
+      client.close(force: true);
+    }
+    return -1;
   }
 
   Future<void> setRoutingMode(String mode) async {
-    final coreMode = switch (mode) {
-      '全局模式' => 'global',
-      '直连模式' => 'direct',
-      _ => 'rule',
-    };
-    await box.setClashMode(coreMode);
+    // Routing is compiled into the active core configuration. The caller
+    // reconnects the current node after switching mode.
   }
 
   Future<Map<String, dynamic>> parseSubscription(String url) => box.parseSubscription(url);

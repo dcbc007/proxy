@@ -67,6 +67,23 @@ jobs:
           grep -q 'Sing-box JSON config written to' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt
           grep -q 'Xray TUN bridge config written for raw sing-box JSON' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt
 
+      - name: Fetch bundled Geo databases
+        shell: bash
+        run: |
+          mkdir -p assets/geo
+          curl -fL --retry 3 -o assets/geo/geoip.dat \
+            https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat
+          curl -fL --retry 3 -o assets/geo/geosite.dat \
+            https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat
+          curl -fL --retry 3 -o assets/geo/geoip-cn.srs \
+            https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs
+          curl -fL --retry 3 -o assets/geo/geosite-geolocation-cn.srs \
+            https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs
+          test -s assets/geo/geoip.dat
+          test -s assets/geo/geosite.dat
+          test -s assets/geo/geoip-cn.srs
+          test -s assets/geo/geosite-geolocation-cn.srs
+
       - name: Create Android platform project
         shell: bash
         run: |
@@ -86,6 +103,10 @@ jobs:
       - name: Snell config regression test
         shell: bash
         run: flutter test test/singbox_config_builder_test.dart
+
+      - name: Desktop routing regression test
+        shell: bash
+        run: flutter test test/routing_logic_test.dart
 
       - name: Prepare pinned libXray source
         shell: bash
@@ -134,15 +155,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.0.11-arm64.apk
-          sha256sum dist/AurumProxy-1.0.11-arm64.apk > dist/AurumProxy-1.0.11-arm64.apk.sha256
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.1.0-arm64.apk
+          sha256sum dist/AurumProxy-1.1.0-arm64.apk > dist/AurumProxy-1.1.0-arm64.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AurumProxy-1.0.11-arm64
+          name: AurumProxy-1.1.0-arm64
           path: |
-            dist/AurumProxy-1.0.11-arm64.apk
-            dist/AurumProxy-1.0.11-arm64.apk.sha256
+            dist/AurumProxy-1.1.0-arm64.apk
+            dist/AurumProxy-1.1.0-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14

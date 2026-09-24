@@ -43,6 +43,9 @@ class QrPayloadParser {
       shortId: query['sid'] ?? query['shortId'] ?? '',
       flow: query['flow'] ?? '',
       fingerprint: query['fp'] ?? 'chrome',
+      snellVersion: protocol == ProxyProtocol.snell
+          ? (int.tryParse(query['version'] ?? '') ?? 5)
+          : 5,
       sourceLink: raw,
     );
   }
