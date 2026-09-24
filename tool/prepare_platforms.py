@@ -24,6 +24,19 @@ if kts.exists():
     s = re.sub(r'minSdk\s*=\s*flutter\.minSdkVersion', 'minSdk = 24', s)
     if 'multiDexEnabled = true' not in s:
         s = s.replace('defaultConfig {', 'defaultConfig {\n        multiDexEnabled = true', 1)
+    if 'create("aurumRelease")' not in s:
+        signing = '''android {
+    signingConfigs {
+        create("aurumRelease") {
+            storeFile = file("aurum-release.jks")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }'''
+        s = s.replace('android {', signing, 1)
+    s = s.replace('signingConfig = signingConfigs.getByName("debug")',
+                  'signingConfig = signingConfigs.getByName("aurumRelease")')
     if 'implementation(fileTree' not in s:
         s += '\n\ndependencies {\n    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))\n}\n'
     kts.write_text(s)
