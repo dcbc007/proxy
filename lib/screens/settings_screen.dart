@@ -90,7 +90,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 12),
         GoldCard(
           child: Column(children: [
-            _row(Icons.update_rounded, '检查更新', 'v\${state.appVersion}'),
+            _row(Icons.update_rounded, '检查更新', 'v${state.appVersion}'),
             const Divider(),
             _row(Icons.info_outline, '关于应用', ''),
             const Divider(),
