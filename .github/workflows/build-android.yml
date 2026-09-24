@@ -53,26 +53,7 @@ jobs:
         run: |
           mkdir -p third_party
           git clone --depth 1 https://github.com/imanheidary/v2box.git third_party/v2box
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/V2rayBoxPlugin.kt")
-          s = p.read_text(encoding="utf-8")
-          old = """    private fun startService() {
-        if (!checkNotificationPermission()) {
-            grantNotificationPermission()
-            return
-        }
-        scope.launch(Dispatchers.IO) {
-"""
-          new = """    private fun startService() {
-        // Android 13+ notification permission is not required to start a VPN foreground service.
-        // Do not block the VPN consent flow behind POST_NOTIFICATIONS.
-        scope.launch(Dispatchers.IO) {
-"""
-          if old not in s:
-              raise SystemExit("v2ray_box startService permission gate pattern not found")
-          p.write_text(s.replace(old, new, 1), encoding="utf-8")
-          PY
+          python3 tool/patch_v2ray_box_android.py
 
       - name: Create Android platform project
         shell: bash
