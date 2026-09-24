@@ -7,6 +7,7 @@ import '../models/proxy_node.dart';
 import 'singbox_config_builder.dart';
 import 'geo_asset_service.dart';
 import 'xray_config_router.dart';
+import 'singbox_config_router.dart';
 
 class VpnEngineService {
   static const MethodChannel _vpnPermissionChannel =
@@ -39,13 +40,30 @@ class VpnEngineService {
 
     if (useSingBox) {
       final geoDir = await _geo.filesDir;
-      final json = SingBoxConfigBuilder.fromNode(
-        node,
+
+      if (node.protocol == ProxyProtocol.snell) {
+        final json = SingBoxConfigBuilder.fromNode(
+          node,
+          mode: mode,
+          geoDir: geoDir,
+        );
+        return box
+            .connectWithJson(json, name: node.name)
+            .timeout(const Duration(seconds: 15), onTimeout: () => false);
+      }
+
+      // Preserve the complete Hysteria2 share-link semantics (obfs, insecure,
+      // bandwidth and future fields) by letting sing-box/v2ray_box parse the
+      // link first, then only replacing the routing section.
+      final generated = await box.generateConfig(node.connectionLink);
+      if (generated.trim().isEmpty) return false;
+      final routed = SingBoxConfigRouter.apply(
+        generated,
         mode: mode,
         geoDir: geoDir,
       );
       return box
-          .connectWithJson(json, name: node.name)
+          .connectWithJson(routed, name: node.name)
           .timeout(const Duration(seconds: 15), onTimeout: () => false);
     }
 
