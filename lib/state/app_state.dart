@@ -192,8 +192,16 @@ class AppState extends ChangeNotifier {
         _log('正在断开代理');
       } else {
         _log('正在连接：${node.name}');
+        final granted = await _vpn.hasVpnPermission();
+        if (!granted) {
+          _log('等待系统 VPN 授权：请在系统弹窗中选择“允许”');
+        }
         final ok = await _vpn.connect(node);
-        if (!ok) _log('连接未启动：VPN 权限被拒绝或配置无效');
+        if (!ok) {
+          _log('连接启动请求未完成，请查看系统授权弹窗或连接日志');
+        } else if (!granted) {
+          _log('已发起 VPN 授权/启动流程');
+        }
       }
     } catch (e) {
       _log('连接失败：$e');
