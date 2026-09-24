@@ -50,7 +50,7 @@ class SingBoxConfigBuilder {
         outbound,
         {'type': 'direct', 'tag': 'direct'}
       ],
-      'route': {'auto_detect_interface': true, 'final': 'proxy'},
+      'route': {'final': 'proxy'},
       'experimental': {
         'clash_api': {'external_controller': '127.0.0.1:9090'}
       }

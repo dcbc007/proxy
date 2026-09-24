@@ -24,5 +24,9 @@ void main() {
     expect(outbound['type'], 'snell');
     expect(outbound['version'], 4);
     expect(outbound['psk'], 'test-password');
+
+    final route = config['route'] as Map<String, dynamic>;
+    expect(route['final'], 'proxy');
+    expect(route.containsKey('auto_detect_interface'), isFalse);
   });
 }
