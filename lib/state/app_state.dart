@@ -20,7 +20,7 @@ class AppState extends ChangeNotifier {
   bool connecting = false;
   bool coreReady = false;
   String coreVersion = '';
-  String appVersion = '1.0.10';
+  String appVersion = '1.0.11';
   String mode = '智能模式';
   String downloadSpeed = '0 B/s';
   String uploadSpeed = '0 B/s';
@@ -104,7 +104,9 @@ class AppState extends ChangeNotifier {
 
     _logsSub = _vpn.watchLogs().listen((event) {
       final line = event['message'] ?? event['log'] ?? event.toString();
-      _log(line.toString());
+      final text = line.toString();
+      _log(text);
+      _applyConnectionStateFromLog(text);
       notifyListeners();
     });
 
@@ -112,6 +114,31 @@ class AppState extends ChangeNotifier {
       _log('提示：${event['message'] ?? event.toString()}');
       notifyListeners();
     });
+  }
+
+  void _applyConnectionStateFromLog(String line) {
+    final lower = line.toLowerCase();
+    if (lower.contains('service connected')) {
+      if (!connected) {
+        connected = true;
+        connecting = false;
+        _connectedAt ??= DateTime.now();
+        _startTimer();
+      }
+      return;
+    }
+
+    if (lower.contains('service stopped') ||
+        lower.contains('stopping service with alert')) {
+      if (connected) {
+        connected = false;
+        _connectedAt = null;
+        connectedDuration = Duration.zero;
+        downloadSpeed = '0 B/s';
+        uploadSpeed = '0 B/s';
+        _timer?.cancel();
+      }
+    }
   }
 
   void _startTimer() {

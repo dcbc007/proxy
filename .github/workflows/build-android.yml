@@ -55,6 +55,12 @@ jobs:
           git clone --depth 1 https://github.com/imanheidary/v2box.git third_party/v2box
           python3 tool/patch_v2ray_box_android.py
 
+      - name: Verify activity-independent VPN status patch
+        shell: bash
+        run: |
+          grep -q 'statusEventSink?.success(mapOf("status" to status.name))' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/V2rayBoxPlugin.kt
+          grep -q 'Handler(android.os.Looper.getMainLooper()).post' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/V2rayBoxPlugin.kt
+
       - name: Verify sing-box/Xray bridge separation patch
         shell: bash
         run: |
@@ -128,15 +134,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.0.10-arm64.apk
-          sha256sum dist/AurumProxy-1.0.10-arm64.apk > dist/AurumProxy-1.0.10-arm64.apk.sha256
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.0.11-arm64.apk
+          sha256sum dist/AurumProxy-1.0.11-arm64.apk > dist/AurumProxy-1.0.11-arm64.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AurumProxy-1.0.10-arm64
+          name: AurumProxy-1.0.11-arm64
           path: |
-            dist/AurumProxy-1.0.10-arm64.apk
-            dist/AurumProxy-1.0.10-arm64.apk.sha256
+            dist/AurumProxy-1.0.11-arm64.apk
+            dist/AurumProxy-1.0.11-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
