@@ -5,7 +5,11 @@ import '../models/proxy_node.dart';
 /// On Android v2ray_box runs sing-box behind its VpnService TUN bridge and
 /// expects a local SOCKS/mixed listener on 127.0.0.1:10808.
 class SingBoxConfigBuilder {
-  static String fromNode(ProxyNode n) {
+  static String fromNode(
+    ProxyNode n, {
+    String mode = '智能模式',
+    String geoDir = '',
+  }) {
     final outbound = <String, dynamic>{
       'tag': 'proxy',
       'server': n.server,
@@ -33,24 +37,95 @@ class SingBoxConfigBuilder {
         _tlsAndTransport(outbound, n);
         break;
       case ProxyProtocol.snell:
-        // sing-box outbound intentionally exposes Snell v4/v6 only.
-        // Snell v5's non-QUIC wire protocol is compatible with v4, so a
-        // standard v5 server must be addressed as outbound version 4.
-        // (sing-box intentionally does not implement Snell v5 QUIC mode.)
-        outbound.addAll({'type': 'snell', 'psk': n.password, 'version': 4});
+        // Desktop v0.7.x compatibility logic:
+        // v4 -> 4, plain v5 -> 4 (wire compatible), v6 -> 6.
+        // Snell v5 QUIC proxy mode is not implemented by sing-box.
+        final runtimeVersion = n.snellVersion == 6 ? 6 : 4;
+        outbound.addAll({
+          'type': 'snell',
+          'psk': n.password,
+          'version': runtimeVersion,
+        });
+        break;
+    }
+
+    final route = <String, dynamic>{};
+    switch (mode) {
+      case '直连模式':
+        route['final'] = 'direct';
+        break;
+      case '全局模式':
+        route['final'] = 'proxy';
+        break;
+      default:
+        route['final'] = 'proxy';
+        route['rules'] = [
+          {
+            'ip_is_private': true,
+            'action': 'route',
+            'outbound': 'direct',
+          },
+          {
+            'rule_set': ['geosite-cn', 'geoip-cn'],
+            'action': 'route',
+            'outbound': 'direct',
+          },
+        ];
+        if (geoDir.isNotEmpty) {
+          route['rule_set'] = [
+            {
+              'type': 'local',
+              'tag': 'geosite-cn',
+              'format': 'binary',
+              'path': '$geoDir/geosite-geolocation-cn.srs',
+            },
+            {
+              'type': 'local',
+              'tag': 'geoip-cn',
+              'format': 'binary',
+              'path': '$geoDir/geoip-cn.srs',
+            },
+          ];
+        } else {
+          route['rule_set'] = [
+            {
+              'type': 'remote',
+              'tag': 'geosite-cn',
+              'format': 'binary',
+              'url':
+                  'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs',
+              'download_detour': 'direct',
+              'update_interval': '1d',
+            },
+            {
+              'type': 'remote',
+              'tag': 'geoip-cn',
+              'format': 'binary',
+              'url':
+                  'https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs',
+              'download_detour': 'direct',
+              'update_interval': '1d',
+            },
+          ];
+        }
         break;
     }
 
     return jsonEncode({
       'log': {'level': 'info', 'timestamp': true},
       'inbounds': [
-        {'type': 'mixed', 'tag': 'mixed-in', 'listen': '127.0.0.1', 'listen_port': 10808}
+        {
+          'type': 'mixed',
+          'tag': 'mixed-in',
+          'listen': '127.0.0.1',
+          'listen_port': 10808,
+        }
       ],
       'outbounds': [
         outbound,
         {'type': 'direct', 'tag': 'direct'}
       ],
-      'route': {'final': 'proxy'},
+      'route': route,
       'experimental': {
         'clash_api': {'external_controller': '127.0.0.1:9090'}
       }
