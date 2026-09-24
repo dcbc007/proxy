@@ -24,3 +24,112 @@ if old not in s:
 
 p.write_text(s.replace(old, new, 1), encoding="utf-8")
 print("Patched v2ray_box Android startService permission gate.")
+
+
+# Improve sing-box startup diagnostics so failures are visible inside Aurum logs.
+sp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/utils/SingboxProcess.kt")
+ss = sp.read_text(encoding="utf-8")
+
+if "var lastError: String = \"\"" not in ss:
+    ss = ss.replace(
+        "    private var process: Process? = null\n",
+        "    private var process: Process? = null\n"
+        "    @Volatile var lastError: String = \"\"\n"
+        "        private set\n"
+    )
+
+ss = ss.replace(
+    '''    fun getBinaryPath(context: Context): String? {
+        val nativeLibDir = context.applicationInfo.nativeLibraryDir
+        val binary = File(nativeLibDir, "libsingbox.so")
+        if (binary.exists() && binary.canExecute()) {
+            return binary.absolutePath
+        }
+        Log.w(TAG, "sing-box binary not found at: ${binary.absolutePath}")
+        return null
+    }
+''',
+    '''    fun getBinaryPath(context: Context): String? {
+        val nativeLibDir = context.applicationInfo.nativeLibraryDir
+        val binary = File(nativeLibDir, "libsingbox.so")
+        if (!binary.exists()) {
+            lastError = "binary missing: ${binary.absolutePath}"
+            Log.e(TAG, lastError)
+            return null
+        }
+        if (!binary.canExecute()) {
+            runCatching { binary.setExecutable(true, false) }
+        }
+        if (!binary.canExecute()) {
+            lastError = "binary is not executable: ${binary.absolutePath}"
+            Log.e(TAG, lastError)
+            return null
+        }
+        return binary.absolutePath
+    }
+'''
+)
+
+ss = ss.replace(
+    '''    fun start(context: Context, configPath: String): Boolean {
+        if (isRunning || isProcessAlive) {
+''',
+    '''    fun start(context: Context, configPath: String): Boolean {
+        lastError = ""
+        if (isRunning || isProcessAlive) {
+'''
+)
+
+ss = ss.replace(
+    '''            if (proc.isAlive) {
+                Log.d(TAG, "sing-box started successfully")
+                true
+            } else {
+                Log.e(TAG, "sing-box process died immediately")
+                isRunning = false
+                process = null
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start sing-box", e)
+            isRunning = false
+            process = null
+            false
+        }
+''',
+    '''            if (proc.isAlive) {
+                Log.d(TAG, "sing-box started successfully")
+                true
+            } else {
+                val exitCode = runCatching { proc.exitValue() }.getOrDefault(-1)
+                lastError = "process exited immediately (code=$exitCode)"
+                Log.e(TAG, "sing-box process died immediately, exit=$exitCode")
+                isRunning = false
+                process = null
+                false
+            }
+        } catch (e: Exception) {
+            lastError = "${e.javaClass.simpleName}: ${e.message ?: "unknown error"}"
+            Log.e(TAG, "Failed to start sing-box: $lastError", e)
+            isRunning = false
+            process = null
+            false
+        }
+'''
+)
+
+sp.write_text(ss, encoding="utf-8")
+
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+bs = bs.replace(
+    '''            emitServiceLog("sing-box start failed", force = true)
+            stopAndAlert(Alert.StartService, "Failed to start sing-box process")
+''',
+    '''            val detail = SingboxProcess.lastError.ifBlank { "unknown startup error" }
+            emitServiceLog("sing-box start failed: $detail", force = true)
+            stopAndAlert(Alert.StartService, "Failed to start sing-box process: $detail")
+'''
+)
+bp.write_text(bs, encoding="utf-8")
+print("Patched sing-box startup diagnostics.")
