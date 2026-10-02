@@ -251,3 +251,849 @@ vs = vs.replace(old_callback, new_callback, 1)
 
 vp.write_text(vs, encoding="utf-8")
 print("Patched VPN status event delivery independent of Activity lifecycle.")
+
+# buildConfig is used by generate_config. The Android child process must not
+# create a privileged TUN: VpnService and the Xray bridge own that descriptor.
+bs = bp.read_text(encoding='utf-8')
+needle = 'SingboxConfigParser.buildSingboxConfig(configLink, !proxyOnly)'
+if needle not in bs:
+    raise SystemExit('generate_config sing-box TUN pattern not found')
+bs = bs.replace(needle, 'SingboxConfigParser.buildSingboxConfig(configLink, false)', 1)
+bp.write_text(bs, encoding='utf-8')
+
+# Preserve the real stderr tail on startup failure; a valid schema can still
+# fail at runtime (TUN permission, port collision, DNS, etc.).
+ss = sp.read_text(encoding='utf-8')
+ss = ss.replace('    private var process: Process? = null', '''    private val recentOutput = java.util.ArrayDeque<String>()
+    private var process: Process? = null''', 1)
+ss = ss.replace('        lastError = ""', '''        lastError = ""
+        synchronized(recentOutput) { recentOutput.clear() }''', 1)
+ss = ss.replace('                        Log.i("SingboxCore", line)', '''                        synchronized(recentOutput) {
+                            if (recentOutput.size >= 12) recentOutput.removeFirst()
+                            recentOutput.addLast(line.take(500))
+                        }
+                        Log.i("SingboxCore", line)''', 1)
+ss = ss.replace('lastError = "process exited immediately (code=$exitCode)"', '''lastError = "process exited immediately (code=$exitCode): " +
+                    synchronized(recentOutput) { recentOutput.joinToString(" | ").takeLast(2000) }''', 1)
+# A dying old process must not clear the state of a newly started process.
+ss = ss.replace('''                    isRunning = false
+                    if (process == proc) {
+                        process = null
+                    }''', '''                    if (process == proc) {
+                        isRunning = false
+                        process = null
+                    }''', 1)
+sp.write_text(ss, encoding='utf-8')
+print('Patched Android TUN ownership and runtime stderr diagnostics.')
+
+
+# Make Android's Xray TUN bridge honor the same Smart / Global / Direct mode
+# as the sing-box child process. Previously the bridge always forwarded almost
+# everything to 127.0.0.1:10808, so Smart mode could still behave like Global.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+old_writer = '''                if (Settings.serviceMode == ServiceMode.VPN) {
+                    val bridgeConfig = buildXrayTunBridge(context)
+                    val bridgeFile = File(wDir, "active_config.json")
+                    bridgeFile.writeText(bridgeConfig)
+                    Log.d(TAG, "Xray TUN bridge config written for raw sing-box JSON")
+                }
+'''
+new_writer = '''                if (Settings.serviceMode == ServiceMode.VPN) {
+                    val routingMode = inferRoutingModeFromSingboxConfig(configJson)
+                    val bridgeConfig = buildXrayTunBridge(context, routingMode)
+                    val bridgeFile = File(wDir, "active_config.json")
+                    bridgeFile.writeText(bridgeConfig)
+                    Log.d(TAG, "Xray TUN bridge config written for raw sing-box JSON, routeMode=$routingMode")
+                }
+'''
+if old_writer not in bs:
+    raise SystemExit("raw sing-box bridge writer pattern not found")
+bs = bs.replace(old_writer, new_writer, 1)
+
+old_bridge = '''        private fun buildXrayTunBridge(context: Context): String {
+            val tunSettings = mutableMapOf<String, Any>(
+                "name" to "xray0",
+                "MTU" to 1500,
+                "userLevel" to 8
+            )
+'''
+new_bridge = '''        private fun inferRoutingModeFromSingboxConfig(configJson: String): String {
+            return runCatching {
+                val root = com.google.gson.JsonParser.parseString(configJson).asJsonObject
+                val route = root.getAsJsonObject("route")
+                val finalTag = route?.get("final")?.asString ?: ""
+                if (finalTag == "direct") {
+                    "DIRECT"
+                } else {
+                    val routeText = route?.toString().orEmpty()
+                    if (routeText.contains("\\"geosite-cn\\"") &&
+                        routeText.contains("\\"geoip-cn\\"")) {
+                        "SMART"
+                    } else {
+                        "GLOBAL"
+                    }
+                }
+            }.getOrElse {
+                Log.w(TAG, "Unable to infer sing-box routing mode: ${it.message}")
+                "GLOBAL"
+            }
+        }
+
+        private fun buildXrayTunBridge(
+            context: Context,
+            routingMode: String = "GLOBAL"
+        ): String {
+            val tunSettings = mutableMapOf<String, Any>(
+                "name" to "xray0",
+                "MTU" to 1500,
+                "userLevel" to 8
+            )
+'''
+if old_bridge not in bs:
+    raise SystemExit("buildXrayTunBridge signature pattern not found")
+bs = bs.replace(old_bridge, new_bridge, 1)
+
+old_config = '''            val config = mapOf(
+                "log" to mapOf("loglevel" to if (Settings.debugMode) "debug" else "warning"),
+                "inbounds" to listOf(
+                    mapOf(
+                        "tag" to "tun",
+                        "port" to 0,
+                        "protocol" to "tun",
+                        "settings" to tunSettings,
+                        "sniffing" to mapOf(
+                            "enabled" to true,
+                            "destOverride" to listOf("http", "tls")
+                        )
+                    )
+                ),
+                "outbounds" to listOf(
+                    mapOf(
+                        "tag" to "proxy",
+                        "protocol" to "socks",
+                        "settings" to mapOf(
+                            "servers" to listOf(
+                                mapOf(
+                                    "address" to "127.0.0.1",
+                                    "port" to 10808
+                                )
+                            )
+                        )
+                    ),
+                    mapOf(
+                        "tag" to "direct",
+                        "protocol" to "freedom",
+                        "settings" to mapOf("domainStrategy" to "UseIP")
+                    )
+                ),
+                "routing" to mapOf(
+                    "domainStrategy" to "AsIs",
+                    "rules" to listOf(
+                        mapOf(
+                            "type" to "field",
+                            "outboundTag" to "direct",
+                            "ip" to listOf(
+                                "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+                                "127.0.0.0/8", "fc00::/7", "fe80::/10", "::1/128"
+                            )
+                        )
+                    )
+                ),
+                "policy" to mapOf(
+'''
+new_config = '''            val routingRules = mutableListOf<Map<String, Any>>()
+            when (routingMode) {
+                "DIRECT" -> {
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "network" to "tcp,udp",
+                            "outboundTag" to "direct"
+                        )
+                    )
+                }
+                "SMART" -> {
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "ip" to listOf("geoip:private"),
+                            "outboundTag" to "direct"
+                        )
+                    )
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "port" to "53",
+                            "outboundTag" to "direct"
+                        )
+                    )
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "domain" to listOf("geosite:cn"),
+                            "outboundTag" to "direct"
+                        )
+                    )
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "ip" to listOf("geoip:cn"),
+                            "outboundTag" to "direct"
+                        )
+                    )
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "network" to "tcp,udp",
+                            "outboundTag" to "proxy"
+                        )
+                    )
+                }
+                else -> {
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "network" to "tcp,udp",
+                            "outboundTag" to "proxy"
+                        )
+                    )
+                }
+            }
+
+            Log.d(TAG, "Xray TUN bridge routing mode=$routingMode rules=${routingRules.size}")
+
+            val config = mapOf(
+                "log" to mapOf("loglevel" to if (Settings.debugMode) "debug" else "warning"),
+                "inbounds" to listOf(
+                    mapOf(
+                        "tag" to "tun",
+                        "port" to 0,
+                        "protocol" to "tun",
+                        "settings" to tunSettings,
+                        "sniffing" to mapOf(
+                            "enabled" to true,
+                            "destOverride" to listOf("http", "tls", "quic")
+                        )
+                    )
+                ),
+                "outbounds" to listOf(
+                    mapOf(
+                        "tag" to "proxy",
+                        "protocol" to "socks",
+                        "settings" to mapOf(
+                            "servers" to listOf(
+                                mapOf(
+                                    "address" to "127.0.0.1",
+                                    "port" to 10808
+                                )
+                            )
+                        )
+                    ),
+                    mapOf(
+                        "tag" to "direct",
+                        "protocol" to "freedom",
+                        "settings" to mapOf("domainStrategy" to "UseIP")
+                    )
+                ),
+                "routing" to mapOf(
+                    "domainStrategy" to "IPIfNonMatch",
+                    "domainMatcher" to "hybrid",
+                    "rules" to routingRules
+                ),
+                "policy" to mapOf(
+'''
+if old_config not in bs:
+    raise SystemExit("Xray bridge config routing block not found")
+bs = bs.replace(old_config, new_config, 1)
+
+bp.write_text(bs, encoding="utf-8")
+print("Patched Android Xray TUN bridge routing modes.")
+
+
+
+# Optimize Smart/Direct mode latency: use the underlying Android network DNS
+# instead of pinning all Xray DNS lookups to 1.1.1.1, and avoid IPIfNonMatch
+# re-resolution in the TUN bridge. Also clear stale DNS overrides when switching.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+bridge_sig = '''        private fun buildXrayTunBridge(
+            context: Context,
+            routingMode: String = "GLOBAL"
+        ): String {
+'''
+helpers = '''        private fun inferRoutingModeFromXrayConfig(configJson: String): String {
+            return runCatching {
+                val root = com.google.gson.JsonParser.parseString(configJson).asJsonObject
+                val routing = root.getAsJsonObject("routing")
+                val rules = routing?.getAsJsonArray("rules")
+                val text = rules?.toString().orEmpty()
+                if (text.contains("geosite:cn") || text.contains("geoip:cn")) {
+                    "SMART"
+                } else {
+                    val last = rules?.lastOrNull()?.asJsonObject
+                    when (last?.get("outboundTag")?.asString) {
+                        "direct" -> "DIRECT"
+                        else -> "GLOBAL"
+                    }
+                }
+            }.getOrElse {
+                Log.w(TAG, "Unable to infer Xray routing mode: ${it.message}")
+                "GLOBAL"
+            }
+        }
+
+        private fun underlyingDnsServer(context: Context): String? {
+            return runCatching {
+                val cm = V2rayBoxPlugin.connectivity
+                    ?: context.getSystemService(android.net.ConnectivityManager::class.java)
+                val network = DefaultNetworkMonitor.defaultNetwork ?: cm.activeNetwork
+                val props = network?.let { cm.getLinkProperties(it) }
+                val address = props?.dnsServers?.firstOrNull {
+                    !it.isLoopbackAddress && !it.isAnyLocalAddress
+                } ?: return@runCatching null
+                val host = address.hostAddress?.substringBefore('%')
+                    ?.takeIf { it.isNotBlank() } ?: return@runCatching null
+                if (address is java.net.Inet6Address) "[$host]:53" else "$host:53"
+            }.getOrNull()
+        }
+
+        private fun dnsServerForRoutingMode(context: Context, routingMode: String): String? {
+            if (routingMode == "GLOBAL") return XRAY_DNS_SERVER
+            val systemDns = underlyingDnsServer(context)
+            Log.d(TAG, "Using underlying DNS for $routingMode: ${systemDns ?: "system/default"}")
+            return systemDns
+        }
+
+        private fun buildXrayTunBridge(
+            context: Context,
+            routingMode: String = "GLOBAL"
+        ): String {
+'''
+if bridge_sig not in bs:
+    raise SystemExit("1.1.6 bridge signature pattern not found")
+bs = bs.replace(bridge_sig, helpers, 1)
+
+bs = bs.replace(
+    '''"settings" to mapOf("domainStrategy" to "UseIP")''',
+    '''"settings" to mapOf("domainStrategy" to "AsIs")''',
+    1
+)
+bs = bs.replace(
+    '''"domainStrategy" to "IPIfNonMatch",
+                    "domainMatcher" to "hybrid",''',
+    '''"domainStrategy" to "AsIs",
+                    "domainMatcher" to "hybrid",''',
+    1
+)
+bs = bs.replace(
+    '''"destOverride" to listOf("http", "tls", "quic")
+                        )''',
+    '''"destOverride" to listOf("http", "tls", "quic"),
+                            "routeOnly" to true
+                        )''',
+    1
+)
+
+old_xray_dns = '''            XrayBridge.configureSocketProtection(
+                    protectFd = { fd -> platformInterface.autoDetectInterfaceControl(fd) },
+                    dnsServer = XRAY_DNS_SERVER
+                )
+'''
+new_xray_dns = '''            val routingMode = inferRoutingModeFromXrayConfig(content)
+            val dnsServer = dnsServerForRoutingMode(service, routingMode)
+            emitServiceLog("Xray routing=$routingMode dns=${dnsServer ?: "system/default"}", force = true)
+            XrayBridge.configureSocketProtection(
+                    protectFd = { fd -> platformInterface.autoDetectInterfaceControl(fd) },
+                    dnsServer = dnsServer
+                )
+'''
+if old_xray_dns not in bs:
+    raise SystemExit("Xray configureSocketProtection DNS pattern not found")
+bs = bs.replace(old_xray_dns, new_xray_dns, 1)
+
+old_bridge_dns = '''                XrayBridge.configureSocketProtection(
+                    protectFd = { fd -> platformInterface.autoDetectInterfaceControl(fd) },
+                    dnsServer = XRAY_DNS_SERVER
+                )
+                val controller = XrayBridge.newCoreController(this)
+'''
+new_bridge_dns = '''                val bridgeRoutingMode = inferRoutingModeFromXrayConfig(bridgeContent)
+                val bridgeDnsServer = dnsServerForRoutingMode(service, bridgeRoutingMode)
+                emitServiceLog(
+                    "TUN bridge routing=$bridgeRoutingMode dns=${bridgeDnsServer ?: "system/default"}",
+                    force = true
+                )
+                XrayBridge.configureSocketProtection(
+                    protectFd = { fd -> platformInterface.autoDetectInterfaceControl(fd) },
+                    dnsServer = bridgeDnsServer
+                )
+                val controller = XrayBridge.newCoreController(this)
+'''
+if old_bridge_dns not in bs:
+    raise SystemExit("sing-box bridge configureSocketProtection DNS pattern not found")
+bs = bs.replace(old_bridge_dns, new_bridge_dns, 1)
+
+bp.write_text(bs, encoding="utf-8")
+
+xp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/xray/XrayBridge.kt")
+xs = xp.read_text(encoding="utf-8")
+old_dns_hook = '''        if (!dnsServer.isNullOrBlank()) {
+            runCatching { LibXray.initDns(controller, dnsServer) }
+                .onFailure { Log.w(TAG, "initDns failed: ${it.message}") }
+        }
+'''
+new_dns_hook = '''        // DNS override is process-global inside libXray. Always clear the
+        // previous mode's resolver before optionally applying a new one.
+        runCatching { LibXray.resetDns() }
+            .onFailure { Log.w(TAG, "resetDns before reconfigure failed: ${it.message}") }
+        if (!dnsServer.isNullOrBlank()) {
+            runCatching { LibXray.initDns(controller, dnsServer) }
+                .onFailure { Log.w(TAG, "initDns failed: ${it.message}") }
+        }
+'''
+if old_dns_hook not in xs:
+    raise SystemExit("XrayBridge DNS hook pattern not found")
+xs = xs.replace(old_dns_hook, new_dns_hook, 1)
+xp.write_text(xs, encoding="utf-8")
+
+print("Patched Smart/Direct DNS path and removed duplicate route DNS resolution.")
+
+
+
+# Fix the actual Android VPN DNS advertised to apps.
+# Upstream hard-codes 1.1.1.1 and 8.8.8.8 into VpnService.Builder, so even
+# Smart/Direct traffic first depends on public DNS that can be slow or blocked.
+# Capture DNS from the underlying Wi-Fi/mobile network before establishing the
+# VPN. Only fall back to China-reachable public resolvers if Android exposes none.
+vpns = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/VPNService.kt")
+vns = vpns.read_text(encoding="utf-8")
+
+old_builder = '''        val builder = Builder()
+            .setSession("V2Ray Box")
+            .setMtu(TUN_MTU)
+            .addAddress(TUN_ADDR4, 30)
+            .addAddress(TUN_ADDR6, 126)
+            .addRoute("0.0.0.0", 0)
+            .addRoute("::", 0)
+            .addDnsServer("1.1.1.1")
+            .addDnsServer("8.8.8.8")
+'''
+
+new_builder = '''        val underlyingNetwork =
+            DefaultNetworkMonitor.defaultNetwork ?: connectivity.activeNetwork
+        val underlyingDns = runCatching {
+            underlyingNetwork
+                ?.let { connectivity.getLinkProperties(it) }
+                ?.dnsServers
+                ?.filter { !it.isLoopbackAddress && !it.isAnyLocalAddress }
+                ?.distinct()
+                .orEmpty()
+        }.getOrDefault(emptyList())
+
+        val selectedDns = if (underlyingDns.isNotEmpty()) {
+            underlyingDns
+        } else {
+            listOf(
+                java.net.InetAddress.getByName("223.5.5.5"),
+                java.net.InetAddress.getByName("119.29.29.29")
+            )
+        }
+
+        Log.d(
+            TAG,
+            "VPN DNS from underlying network: " +
+                selectedDns.joinToString(",") { it.hostAddress ?: it.toString() }
+        )
+
+        val builder = Builder()
+            .setSession("V2Ray Box")
+            .setMtu(TUN_MTU)
+            .addAddress(TUN_ADDR4, 30)
+            .addAddress(TUN_ADDR6, 126)
+            .addRoute("0.0.0.0", 0)
+            .addRoute("::", 0)
+
+        selectedDns.forEach { builder.addDnsServer(it) }
+'''
+if old_builder not in vns:
+    raise SystemExit("VPNService hard-coded DNS builder pattern not found")
+vns = vns.replace(old_builder, new_builder, 1)
+
+vpns.write_text(vns, encoding="utf-8")
+print("Patched Android VPN DNS to underlying network resolvers.")
+
+# 1.1.8 Smart DNS routing:
+# - Direct mode keeps underlying DNS and direct routing.
+# - Smart/Global advertise public DNS targets to Android apps, but DNS packets
+#   are routed through the proxy path.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+old_smart_dns = '''                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "port" to "53",
+                            "outboundTag" to "direct"
+                        )
+                    )
+'''
+new_smart_dns = '''                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "port" to "53",
+                            "outboundTag" to "proxy"
+                        )
+                    )
+'''
+if old_smart_dns not in bs:
+    raise SystemExit("SMART DNS direct rule pattern not found")
+bs = bs.replace(old_smart_dns, new_smart_dns, 1)
+
+old_dns_mode = '''        private fun dnsServerForRoutingMode(context: Context, routingMode: String): String? {
+            if (routingMode == "GLOBAL") return XRAY_DNS_SERVER
+            val systemDns = underlyingDnsServer(context)
+            Log.d(TAG, "Using underlying DNS for $routingMode: ${systemDns ?: \"system/default\"}")
+            return systemDns
+        }
+'''
+new_dns_mode = '''        private fun dnsServerForRoutingMode(context: Context, routingMode: String): String? {
+            val systemDns = underlyingDnsServer(context)
+            Log.d(TAG, "Core endpoint DNS for $routingMode: ${systemDns ?: \"system/default\"}")
+            return systemDns
+        }
+'''
+if old_dns_mode not in bs:
+    raise SystemExit("dnsServerForRoutingMode pattern not found")
+bs = bs.replace(old_dns_mode, new_dns_mode, 1)
+bp.write_text(bs, encoding="utf-8")
+
+vpns = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/VPNService.kt")
+vns = vpns.read_text(encoding="utf-8")
+
+old_selected = '''        val selectedDns = if (underlyingDns.isNotEmpty()) {
+            underlyingDns
+        } else {
+            listOf(
+                java.net.InetAddress.getByName("223.5.5.5"),
+                java.net.InetAddress.getByName("119.29.29.29")
+            )
+        }
+
+        Log.d(
+            TAG,
+            "VPN DNS from underlying network: " +
+                selectedDns.joinToString(",") { it.hostAddress ?: it.toString() }
+        )
+'''
+new_selected = '''        val routingMode = runCatching {
+            val content = java.io.File(Settings.activeConfigPath).readText()
+            val root = com.google.gson.JsonParser.parseString(content).asJsonObject
+            val singRoute = root.getAsJsonObject("route")
+            if (singRoute != null) {
+                val finalTag = singRoute.get("final")?.asString.orEmpty()
+                val text = singRoute.toString()
+                when {
+                    finalTag == "direct" -> "DIRECT"
+                    text.contains("geosite-cn") || text.contains("geoip-cn") -> "SMART"
+                    else -> "GLOBAL"
+                }
+            } else {
+                val xrayRouting = root.getAsJsonObject("routing")
+                val rules = xrayRouting?.getAsJsonArray("rules")
+                val text = rules?.toString().orEmpty()
+                when {
+                    text.contains("geosite:cn") || text.contains("geoip:cn") -> "SMART"
+                    rules?.lastOrNull()?.asJsonObject?.get("outboundTag")?.asString == "direct" -> "DIRECT"
+                    else -> "GLOBAL"
+                }
+            }
+        }.getOrElse {
+            Log.w(TAG, "Unable to infer VPN routing mode for DNS: ${it.message}")
+            "GLOBAL"
+        }
+
+        val selectedDns = if (routingMode == "DIRECT") {
+            if (underlyingDns.isNotEmpty()) {
+                underlyingDns
+            } else {
+                listOf(
+                    java.net.InetAddress.getByName("223.5.5.5"),
+                    java.net.InetAddress.getByName("119.29.29.29")
+                )
+            }
+        } else {
+            listOf(
+                java.net.InetAddress.getByName("1.1.1.1"),
+                java.net.InetAddress.getByName("8.8.8.8")
+            )
+        }
+
+        Log.d(
+            TAG,
+            "VPN DNS mode=$routingMode servers=" +
+                selectedDns.joinToString(",") { it.hostAddress ?: it.toString() }
+        )
+'''
+if old_selected not in vns:
+    raise SystemExit("VPN selectedDns pattern not found")
+vns = vns.replace(old_selected, new_selected, 1)
+vpns.write_text(vns, encoding="utf-8")
+
+print("Patched Smart/Global DNS to proxy path; Direct keeps system DNS.")
+
+# 1.1.9 Smart route correctness:
+# Restore DNS->IP fallback only for Smart mode so geoip:cn can match domains
+# that are absent from geosite:cn. Direct/Global remain AsIs to avoid the
+# previous latency regression. Add domain:cn as a deterministic fallback.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+old_domain_rule = '''                            "domain" to listOf("geosite:cn"),'''
+new_domain_rule = '''                            "domain" to listOf("geosite:cn", "domain:cn"),'''
+if old_domain_rule not in bs:
+    raise SystemExit("SMART geosite domain rule pattern not found")
+bs = bs.replace(old_domain_rule, new_domain_rule, 1)
+
+config_anchor = '''            val config = mapOf(
+'''
+strategy_decl = '''            val routeDomainStrategy =
+                if (routingMode == "SMART") "IPIfNonMatch" else "AsIs"
+
+            val config = mapOf(
+'''
+if config_anchor not in bs:
+    raise SystemExit("bridge config anchor not found")
+bs = bs.replace(config_anchor, strategy_decl, 1)
+
+old_strategy = '''                    "domainStrategy" to "AsIs",
+                    "domainMatcher" to "hybrid",'''
+new_strategy = '''                    "domainStrategy" to routeDomainStrategy,
+                    "domainMatcher" to "hybrid",'''
+if old_strategy not in bs:
+    raise SystemExit("bridge AsIs strategy pattern not found")
+bs = bs.replace(old_strategy, new_strategy, 1)
+
+bp.write_text(bs, encoding="utf-8")
+print("Patched Smart routing with IPIfNonMatch and domain:cn fallback.")
+
+# 1.2.0 single-routing-core architecture.
+# Raw sing-box configs use Xray only as a transport bridge.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+old_writer = '''                if (Settings.serviceMode == ServiceMode.VPN) {
+                    val routingMode = inferRoutingModeFromSingboxConfig(configJson)
+                    val bridgeConfig = buildXrayTunBridge(context, routingMode)
+                    val bridgeFile = File(wDir, "active_config.json")
+                    bridgeFile.writeText(bridgeConfig)
+                    Log.d(TAG, "Xray TUN bridge config written for raw sing-box JSON, routeMode=$routingMode")
+                }
+'''
+new_writer = '''                if (Settings.serviceMode == ServiceMode.VPN) {
+                    val bridgeConfig = buildXrayTunBridge(context, "GLOBAL")
+                    val bridgeFile = File(wDir, "active_config.json")
+                    bridgeFile.writeText(bridgeConfig)
+                    Log.d(TAG, "Xray TUN bridge written in transport-only mode -> sing-box")
+                }
+'''
+if old_writer not in bs:
+    raise SystemExit("1.2.0 raw sing-box writer pattern not found")
+bs = bs.replace(old_writer, new_writer, 1)
+
+old_sniff = '''                        "sniffing" to mapOf(
+                            "enabled" to true,
+                            "destOverride" to listOf("http", "tls", "quic"),
+                            "routeOnly" to true
+                        )
+'''
+new_sniff = '''                        "sniffing" to mapOf(
+                            "enabled" to false
+                        )
+'''
+if old_sniff not in bs:
+    raise SystemExit("1.2.0 bridge sniffing block not found")
+bs = bs.replace(old_sniff, new_sniff, 1)
+
+old_bridge_dns = '''                val bridgeRoutingMode = inferRoutingModeFromXrayConfig(bridgeContent)
+                val bridgeDnsServer = dnsServerForRoutingMode(service, bridgeRoutingMode)
+                emitServiceLog(
+                    "TUN bridge routing=$bridgeRoutingMode dns=${bridgeDnsServer ?: \"system/default\"}",
+                    force = true
+                )
+                XrayBridge.configureSocketProtection(
+                    protectFd = { fd -> platformInterface.autoDetectInterfaceControl(fd) },
+                    dnsServer = bridgeDnsServer
+                )
+'''
+new_bridge_dns = '''                emitServiceLog(
+                    "TUN bridge transport-only -> 127.0.0.1:10808; sing-box owns routing/DNS",
+                    force = true
+                )
+                XrayBridge.configureSocketProtection(
+                    protectFd = { fd -> platformInterface.autoDetectInterfaceControl(fd) },
+                    dnsServer = null
+                )
+'''
+if old_bridge_dns not in bs:
+    raise SystemExit("1.2.0 bridge DNS block not found")
+bs = bs.replace(old_bridge_dns, new_bridge_dns, 1)
+
+bp.write_text(bs, encoding="utf-8")
+print("Patched Android TUN bridge to transport-only single-routing-core mode.")
+
+# Remove all dead Smart/Direct branches from the bridge itself. Even if a
+# future caller passes another routingMode, the bridge can only forward to
+# sing-box; it cannot make routing decisions.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+start = bs.find('            val routingRules = mutableListOf<Map<String, Any>>()')
+end = bs.find('            Log.d(', start)
+if start < 0 or end < 0:
+    raise SystemExit("1.2.0 routingRules block not found")
+simple_rules = '''            val routingRules = listOf(
+                mapOf<String, Any>(
+                    "type" to "field",
+                    "network" to "tcp,udp",
+                    "outboundTag" to "proxy"
+                )
+            )
+
+'''
+bs = bs[:start] + simple_rules + bs[end:]
+bs = bs.replace(
+    '''            val routeDomainStrategy =
+                if (routingMode == "SMART") "IPIfNonMatch" else "AsIs"''',
+    '''            val routeDomainStrategy = "AsIs"''',
+    1,
+)
+bp.write_text(bs, encoding="utf-8")
+print("Removed routing decisions from Android TUN bridge.")
+
+# 1.2.2 high-throughput Android data path:
+# replace the Xray TUN->SOCKS bridge with hev-socks5-tunnel JNI, matching the
+# mature v2rayNG approach. sing-box remains the only routing/proxy core.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+bs = bs.replace(
+    '''            if (coreController != null || SingboxProcess.isRunning || SingboxProcess.isProcessAlive) {''',
+    '''            if (coreController != null || HevTunBridge.isRunning() || SingboxProcess.isRunning || SingboxProcess.isProcessAlive) {''',
+    1,
+)
+
+start = bs.find('            val tunFd = pfd.fd\n            Log.d(TAG, "TUN created with fd=$tunFd, starting Xray TUN bridge...")')
+end = bs.find('        }\n        return true', start)
+if start < 0 or end < 0:
+    raise SystemExit("1.2.2 sing-box VPN bridge block not found")
+hev_start = '''            val tunFd = pfd.fd
+            Log.d(TAG, "TUN created with fd=$tunFd, starting HEV tun2socks...")
+            emitServiceLog("TUN created with fd=$tunFd for HEV tun2socks")
+
+            val hevStarted = runCatching {
+                HevTunBridge.start(service, pfd)
+            }.getOrElse {
+                Log.e(TAG, "Failed to start HEV tun2socks", it)
+                false
+            }
+            if (!hevStarted) {
+                SingboxProcess.stop()
+                platformInterface.closeTun()
+                emitServiceLog("HEV tun2socks failed to start", force = true)
+                stopAndAlert(Alert.StartService, "HEV tun2socks failed to start")
+                return false
+            }
+            Log.d(TAG, "HEV tun2socks started for sing-box VPN mode")
+            emitServiceLog("HEV tun2socks -> sing-box active", force = true)
+'''
+bs = bs[:start] + hev_start + bs[end:]
+
+stop_marker = '''        if (SingboxProcess.isRunning || SingboxProcess.isProcessAlive) {'''
+hev_stop = '''        if (HevTunBridge.isRunning()) {
+            runCatching { HevTunBridge.stop() }
+                .onFailure { Log.w(TAG, "Error stopping HEV tun2socks", it) }
+        }
+
+        if (SingboxProcess.isRunning || SingboxProcess.isProcessAlive) {'''
+if stop_marker not in bs:
+    raise SystemExit("1.2.2 stop marker not found")
+bs = bs.replace(stop_marker, hev_stop, 1)
+
+bp.write_text(bs, encoding="utf-8")
+
+# Match mature Android TUN clients: large virtual MTU improves userspace
+# tun2socks throughput. This does not change the physical interface MTU.
+vpns = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/VPNService.kt")
+vns = vpns.read_text(encoding="utf-8")
+vns = vns.replace('private const val TUN_MTU = 1500', 'private const val TUN_MTU = 9000', 1)
+vpns.write_text(vns, encoding="utf-8")
+
+hev_file = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/HevTunBridge.kt")
+hev_file.write_text(r'''package com.example.v2ray_box.bg
+
+import android.content.Context
+import android.os.ParcelFileDescriptor
+import android.util.Log
+import java.io.File
+
+class HevTunBridge private constructor() {
+    companion object {
+        private const val TAG = "V2Ray/HevTunBridge"
+        private const val MTU = 9000
+
+        @JvmStatic
+        private external fun TProxyStartService(configPath: String, fd: Int): Boolean
+
+        @JvmStatic
+        private external fun TProxyStopService(): Boolean
+
+        @JvmStatic
+        private external fun TProxyIsRunning(): Boolean
+
+        init {
+            System.loadLibrary("hev-socks5-tunnel")
+        }
+
+        fun start(context: Context, pfd: ParcelFileDescriptor): Boolean {
+            if (isRunning()) stop()
+            val config = buildString {
+                appendLine("tunnel:")
+                appendLine("  mtu: $MTU")
+                appendLine("  ipv4: 26.26.26.1")
+                appendLine("  ipv6: 'da26:2626::1'")
+                appendLine("socks5:")
+                appendLine("  port: 10808")
+                appendLine("  address: 127.0.0.1")
+                appendLine("  udp: 'udp'")
+                appendLine("misc:")
+                appendLine("  tcp-read-write-timeout: 300000")
+                appendLine("  udp-read-write-timeout: 60000")
+                appendLine("  log-level: error")
+            }
+            val file = File(context.filesDir, "hev-socks5-tunnel.yaml")
+            file.writeText(config)
+            Log.d(TAG, "Starting HEV tun2socks fd=${pfd.fd} mtu=$MTU")
+            if (!TProxyStartService(file.absolutePath, pfd.fd)) return false
+            val deadline = System.currentTimeMillis() + 2500
+            while (System.currentTimeMillis() < deadline) {
+                if (TProxyIsRunning()) return true
+                Thread.sleep(40)
+            }
+            return TProxyIsRunning()
+        }
+
+        fun stop() {
+            if (runCatching { TProxyIsRunning() }.getOrDefault(false)) {
+                runCatching { TProxyStopService() }
+            }
+        }
+
+        fun isRunning(): Boolean =
+            runCatching { TProxyIsRunning() }.getOrDefault(false)
+    }
+}
+''', encoding="utf-8")
+
+print("Patched sing-box VPN data path to HEV tun2socks at MTU 9000.")
