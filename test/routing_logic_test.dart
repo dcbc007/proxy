@@ -74,17 +74,35 @@ void main() {
     expect((outbound['tls'] as Map)['server_name'], 'example.com');
   });
 
+
+  test('pre-proxy selection survives node persistence', () {
+    final node = ProxyNode(
+      id: 'main',
+      name: 'Main',
+      protocol: ProxyProtocol.vless,
+      server: 'example.com',
+      port: 443,
+      uuid: '11111111-1111-1111-1111-111111111111',
+      preProxyNodeId: 'front',
+    );
+    final restored = ProxyNode.fromJson(node.toJson());
+    expect(restored.preProxyNodeId, 'front');
+  });
+
   test('Xray smart global direct modes compile routing rules', () {
     const base = '{"outbounds":[{"protocol":"vless","tag":"proxy","settings":{}}]}';
 
     final smart = jsonDecode(XrayConfigRouter.apply(base, '智能模式'))
         as Map<String, dynamic>;
     final smartRules = ((smart['routing'] as Map)['rules'] as List);
-    expect(smartRules.length, 3);
+    expect(smartRules.length, 4);
+    expect((smartRules.last as Map)['outboundTag'], 'proxy');
 
     final global = jsonDecode(XrayConfigRouter.apply(base, '全局模式'))
         as Map<String, dynamic>;
-    expect((((global['routing'] as Map)['rules']) as List), isEmpty);
+    final globalRules = ((global['routing'] as Map)['rules'] as List);
+    expect(globalRules.length, 1);
+    expect((globalRules.first as Map)['outboundTag'], 'proxy');
 
     final direct = jsonDecode(XrayConfigRouter.apply(base, '直连模式'))
         as Map<String, dynamic>;
