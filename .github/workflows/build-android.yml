@@ -65,8 +65,14 @@ jobs:
       - name: Verify sing-box/Xray bridge separation patch
         shell: bash
         run: |
-          grep -q 'Sing-box JSON config written to' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt
-          grep -q 'Xray TUN bridge config written for raw sing-box JSON' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt
+          BOX_SERVICE="third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt"
+          grep -q 'Sing-box JSON config written to' "$BOX_SERVICE"
+          grep -q 'Xray TUN bridge config written for raw sing-box JSON' "$BOX_SERVICE"
+          grep -q 'inferRoutingModeFromSingboxConfig' "$BOX_SERVICE"
+          grep -q '"SMART"' "$BOX_SERVICE"
+          grep -q 'geosite:cn' "$BOX_SERVICE"
+          grep -q 'geoip:cn' "$BOX_SERVICE"
+          grep -q 'Xray TUN bridge routing mode=' "$BOX_SERVICE"
 
       - name: Fetch bundled Geo databases
         shell: bash
@@ -165,15 +171,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.1.4-arm64.apk
-          sha256sum dist/AurumProxy-1.1.4-arm64.apk > dist/AurumProxy-1.1.4-arm64.apk.sha256
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.1.5-arm64.apk
+          sha256sum dist/AurumProxy-1.1.5-arm64.apk > dist/AurumProxy-1.1.5-arm64.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AurumProxy-1.1.4-arm64
+          name: AurumProxy-1.1.5-arm64
           path: |
-            dist/AurumProxy-1.1.4-arm64.apk
-            dist/AurumProxy-1.1.4-arm64.apk.sha256
+            dist/AurumProxy-1.1.5-arm64.apk
+            dist/AurumProxy-1.1.5-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
