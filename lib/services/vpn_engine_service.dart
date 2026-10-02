@@ -45,7 +45,9 @@ class VpnEngineService {
     await box.setServiceMode(VpnMode.vpn);
 
     if (useSingBox) {
-      final geoDir = await _geo.filesDir;
+      final geoDir = mode == '智能模式' && await _geo.hasSmartRuleAssets()
+          ? await _geo.filesDir
+          : '';
 
       if (useChain) {
         final json = await _buildSingBoxChain(
