@@ -366,7 +366,7 @@ class AppState extends ChangeNotifier {
         _log(
           preProxy == null
               ? '正在连接：${node.name} · ${node.protocol.label}'
-              : '正在连接：${node.name} → 前置 ${preProxy.name}',
+              : '正在连接：前置 ${preProxy.name} → ${node.name}',
         );
         final granted = await _vpn.hasVpnPermission();
         if (!granted) {
