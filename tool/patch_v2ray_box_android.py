@@ -878,3 +878,68 @@ bs = bs.replace(old_strategy, new_strategy, 1)
 
 bp.write_text(bs, encoding="utf-8")
 print("Patched Smart routing with IPIfNonMatch and domain:cn fallback.")
+
+# 1.2.0 single-routing-core architecture.
+# Raw sing-box configs use Xray only as a transport bridge.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+old_writer = '''                if (Settings.serviceMode == ServiceMode.VPN) {
+                    val routingMode = inferRoutingModeFromSingboxConfig(configJson)
+                    val bridgeConfig = buildXrayTunBridge(context, routingMode)
+                    val bridgeFile = File(wDir, "active_config.json")
+                    bridgeFile.writeText(bridgeConfig)
+                    Log.d(TAG, "Xray TUN bridge config written for raw sing-box JSON, routeMode=$routingMode")
+                }
+'''
+new_writer = '''                if (Settings.serviceMode == ServiceMode.VPN) {
+                    val bridgeConfig = buildXrayTunBridge(context, "GLOBAL")
+                    val bridgeFile = File(wDir, "active_config.json")
+                    bridgeFile.writeText(bridgeConfig)
+                    Log.d(TAG, "Xray TUN bridge written in transport-only mode -> sing-box")
+                }
+'''
+if old_writer not in bs:
+    raise SystemExit("1.2.0 raw sing-box writer pattern not found")
+bs = bs.replace(old_writer, new_writer, 1)
+
+old_sniff = '''                        "sniffing" to mapOf(
+                            "enabled" to true,
+                            "destOverride" to listOf("http", "tls", "quic"),
+                            "routeOnly" to true
+                        )
+'''
+new_sniff = '''                        "sniffing" to mapOf(
+                            "enabled" to false
+                        )
+'''
+if old_sniff not in bs:
+    raise SystemExit("1.2.0 bridge sniffing block not found")
+bs = bs.replace(old_sniff, new_sniff, 1)
+
+old_bridge_dns = '''                val bridgeRoutingMode = inferRoutingModeFromXrayConfig(bridgeContent)
+                val bridgeDnsServer = dnsServerForRoutingMode(service, bridgeRoutingMode)
+                emitServiceLog(
+                    "TUN bridge routing=$bridgeRoutingMode dns=${bridgeDnsServer ?: \"system/default\"}",
+                    force = true
+                )
+                XrayBridge.configureSocketProtection(
+                    protectFd = { fd -> platformInterface.autoDetectInterfaceControl(fd) },
+                    dnsServer = bridgeDnsServer
+                )
+'''
+new_bridge_dns = '''                emitServiceLog(
+                    "TUN bridge transport-only -> 127.0.0.1:10808; sing-box owns routing/DNS",
+                    force = true
+                )
+                XrayBridge.configureSocketProtection(
+                    protectFd = { fd -> platformInterface.autoDetectInterfaceControl(fd) },
+                    dnsServer = null
+                )
+'''
+if old_bridge_dns not in bs:
+    raise SystemExit("1.2.0 bridge DNS block not found")
+bs = bs.replace(old_bridge_dns, new_bridge_dns, 1)
+
+bp.write_text(bs, encoding="utf-8")
+print("Patched Android TUN bridge to transport-only single-routing-core mode.")
