@@ -45,14 +45,13 @@ class VpnEngineService {
       }
     }
 
-    final useChain = preProxy != null;
-    final useSingBox = useChain ||
-        node.protocol == ProxyProtocol.snell ||
-        node.protocol == ProxyProtocol.hysteria2;
-    await box.setCoreEngine(useSingBox ? 'singbox' : 'xray');
+    // 1.2.0: one routing engine only. Android's Xray TUN layer is a pure
+    // transport bridge; sing-box owns Smart/Global/Direct, DNS and Geo rules.
+    // This avoids the previous double-routing/double-DNS behavior.
+    await box.setCoreEngine('singbox');
     await box.setServiceMode(VpnMode.vpn);
 
-    if (useSingBox) {
+    {
       final geoDir = mode == '智能模式' && await _geo.hasSmartRuleAssets()
           ? await _geo.filesDir
           : '';
@@ -80,12 +79,8 @@ class VpnEngineService {
             .timeout(const Duration(seconds: 15), onTimeout: () => false);
       }
 
-      // Keep Hysteria2 on the core's native share-link parser for both
-      // verified certificates and insecure/self-signed certificates.
-      // ProxyNode.connectionLink already carries the advanced HY2 fields
-      // (SNI, insecure, ALPN, obfs, bandwidth, port hopping, etc.).
-      // This restores the certificate compatibility path used by 1.1.1 while
-      // preserving the new 1.1.2 options.
+      // All supported share links are parsed by sing-box in 1.2.0. This keeps
+      // routing, DNS, Geo matching and protocol transport in one core.
       final generated = await box.generateConfig(node.connectionLink);
       if (generated.trim().isEmpty) return false;
       final routed = SingBoxConfigRouter.apply(
@@ -97,13 +92,6 @@ class VpnEngineService {
           .connectWithJson(routed, name: node.name)
           .timeout(const Duration(seconds: 15), onTimeout: () => false);
     }
-
-    final generated = await box.generateConfig(node.connectionLink);
-    if (generated.trim().isEmpty) return false;
-    final routed = XrayConfigRouter.apply(generated, mode);
-    return box
-        .connectWithJson(routed, name: node.name)
-        .timeout(const Duration(seconds: 15), onTimeout: () => false);
   }
 
   Future<bool> disconnect() => box.disconnect();
@@ -151,14 +139,6 @@ class VpnEngineService {
     bool allowTunnelFallback = false,
     ProxyNode? preProxy,
   }) async {
-    final singbox = preProxy != null ||
-        node.protocol == ProxyProtocol.snell ||
-        node.protocol == ProxyProtocol.hysteria2;
-    if (!singbox) {
-      return box
-          .ping(node.connectionLink, timeout: 6000)
-          .timeout(const Duration(seconds: 9), onTimeout: () => -1);
-    }
     if (!Platform.isAndroid) return -1;
     await box.setCoreEngine('singbox');
     final raw = preProxy != null
