@@ -943,3 +943,31 @@ bs = bs.replace(old_bridge_dns, new_bridge_dns, 1)
 
 bp.write_text(bs, encoding="utf-8")
 print("Patched Android TUN bridge to transport-only single-routing-core mode.")
+
+# Remove all dead Smart/Direct branches from the bridge itself. Even if a
+# future caller passes another routingMode, the bridge can only forward to
+# sing-box; it cannot make routing decisions.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+start = bs.find('            val routingRules = mutableListOf<Map<String, Any>>()')
+end = bs.find('            Log.d(', start)
+if start < 0 or end < 0:
+    raise SystemExit("1.2.0 routingRules block not found")
+simple_rules = '''            val routingRules = listOf(
+                mapOf<String, Any>(
+                    "type" to "field",
+                    "network" to "tcp,udp",
+                    "outboundTag" to "proxy"
+                )
+            )
+
+'''
+bs = bs[:start] + simple_rules + bs[end:]
+bs = bs.replace(
+    '''            val routeDomainStrategy =
+                if (routingMode == "SMART") "IPIfNonMatch" else "AsIs"''',
+    '''            val routeDomainStrategy = "AsIs"''',
+    1,
+)
+bp.write_text(bs, encoding="utf-8")
+print("Removed routing decisions from Android TUN bridge.")
