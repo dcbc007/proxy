@@ -1,11 +1,7 @@
 import 'dart:convert';
 
 class SingBoxConfigRouter {
-  static String apply(
-    String raw, {
-    String mode = '智能模式',
-    String geoDir = '',
-  }) {
+  static String apply(String raw, {String mode = '智能模式', String geoDir = ''}) {
     final root = Map<String, dynamic>.from(jsonDecode(raw) as Map);
     final outbounds = ((root['outbounds'] as List?) ?? const [])
         .map((e) => Map<String, dynamic>.from(e as Map))
@@ -15,6 +11,52 @@ class SingBoxConfigRouter {
       outbounds.add({'type': 'direct', 'tag': 'direct'});
     }
     root['outbounds'] = outbounds;
+
+    // Android VpnService + Xray own the TUN descriptor. A standalone
+    // sing-box process has no permission to create another TUN device.
+    root['inbounds'] = [
+      {
+        'type': 'mixed',
+        'tag': 'mixed-in',
+        'listen': '127.0.0.1',
+        'listen_port': 10808,
+      },
+    ];
+    root['log'] = {'level': 'warn', 'timestamp': false};
+    final proxyTag = _proxyTag(outbounds);
+    final directMode = mode == '直连模式';
+    root['dns'] = {
+      'servers': [
+        {'type': 'local', 'tag': 'dns-direct'},
+        {
+          'type': 'https',
+          'tag': 'dns-remote',
+          'server': '1.1.1.1',
+          'server_port': 443,
+          'path': '/dns-query',
+          'detour': proxyTag,
+        },
+      ],
+      'final': directMode ? 'dns-direct' : 'dns-remote',
+      'strategy': 'prefer_ipv4',
+      'independent_cache': true,
+      if (mode == '智能模式')
+        'rules': [
+          {
+            'domain_suffix': ['.cn'],
+            'server': 'dns-direct',
+          },
+          {
+            'rule_set': ['geosite-cn'],
+            'server': 'dns-direct',
+          },
+        ],
+    };
+    for (final outbound in outbounds) {
+      if (outbound['type'] == 'direct') {
+        outbound['domain_resolver'] = 'dns-direct';
+      }
+    }
 
     final route = <String, dynamic>{};
     switch (mode) {
@@ -28,8 +70,9 @@ class SingBoxConfigRouter {
         final proxy = _proxyTag(outbounds);
         route['final'] = proxy;
         route['rules'] = [
+          {'ip_is_private': true, 'action': 'route', 'outbound': 'direct'},
           {
-            'ip_is_private': true,
+            'domain_suffix': ['.cn'],
             'action': 'route',
             'outbound': 'direct',
           },
@@ -59,8 +102,7 @@ class SingBoxConfigRouter {
                   'type': 'remote',
                   'tag': 'geosite-cn',
                   'format': 'binary',
-                  'url':
-                      'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs',
+                  'url': 'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs',
                   'download_detour': 'direct',
                   'update_interval': '1d',
                 },
@@ -68,8 +110,7 @@ class SingBoxConfigRouter {
                   'type': 'remote',
                   'tag': 'geoip-cn',
                   'format': 'binary',
-                  'url':
-                      'https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs',
+                  'url': 'https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs',
                   'download_detour': 'direct',
                   'update_interval': '1d',
                 },
@@ -91,6 +132,18 @@ class SingBoxConfigRouter {
       }
     }
     root['route'] = route;
+    route['default_domain_resolver'] = {
+      'server': 'dns-direct',
+      'strategy': 'prefer_ipv4',
+    };
+    // Match DNS by its port; avoid sniffing every flow a second time.
+    route['rules'] = [
+      {'port': 53, 'action': 'hijack-dns'},
+      ...((route['rules'] as List?) ?? const []),
+    ];
+    root['experimental'] = {
+      'clash_api': {'external_controller': '127.0.0.1:9090'},
+    };
     return jsonEncode(root);
   }
 
