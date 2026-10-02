@@ -38,6 +38,13 @@ class VpnEngineService {
   }) async {
     if (!await ensureVpnPermission()) return false;
 
+    if (mode == '智能模式') {
+      await _geo.bootstrap();
+      if (!await _geo.hasSmartRuleAssets()) {
+        throw StateError('智能分流 Geo 数据缺失或不完整，请在设置中更新 GeoIP / GeoSite');
+      }
+    }
+
     final useChain = preProxy != null;
     final useSingBox = useChain ||
         node.protocol == ProxyProtocol.snell ||
