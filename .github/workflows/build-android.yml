@@ -136,6 +136,10 @@ jobs:
           tar -xzf /tmp/singbox-linux.tar.gz -C /tmp
           dart run tool/smoke_chain_config.dart /tmp/aurum-chain.json
           /tmp/sing-box-1.14.1-linux-amd64/sing-box check -c /tmp/aurum-chain.json
+          dart run tool/smoke_single_core_routes.dart /tmp/aurum-single-core
+          /tmp/sing-box-1.14.1-linux-amd64/sing-box check -c /tmp/aurum-single-core-smart.json
+          /tmp/sing-box-1.14.1-linux-amd64/sing-box check -c /tmp/aurum-single-core-global.json
+          /tmp/sing-box-1.14.1-linux-amd64/sing-box check -c /tmp/aurum-single-core-direct.json
           python3 tool/smoke_test_singbox.py /tmp/sing-box-1.14.1-linux-amd64/sing-box
 
       - name: Prepare pinned libXray source
