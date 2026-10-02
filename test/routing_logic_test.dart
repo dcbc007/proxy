@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:aurum_proxy/models/proxy_node.dart';
 import 'package:aurum_proxy/services/singbox_config_builder.dart';
+import 'package:aurum_proxy/services/singbox_chain_config.dart';
 import 'package:aurum_proxy/services/xray_config_router.dart';
 
 void main() {
@@ -39,7 +40,7 @@ void main() {
     final route = config['route'] as Map<String, dynamic>;
     expect(route['final'], 'proxy');
     final rules = route['rules'] as List;
-    expect(rules.length, 2);
+    expect(rules.length, 3);
     final ruleSets = route['rule_set'] as List;
     expect(ruleSets.length, 2);
     expect((ruleSets.first as Map)['type'], 'local');
@@ -74,17 +75,68 @@ void main() {
     expect((outbound['tls'] as Map)['server_name'], 'example.com');
   });
 
+
+
+  test('sing-box pre-proxy chain preserves detour across route modes', () {
+    const primary = '''
+{"outbounds":[{"type":"vless","tag":"old-main","server":"main.example","server_port":443,"uuid":"11111111-1111-1111-1111-111111111111"}]}
+''';
+    const pre = '''
+{"outbounds":[{"type":"shadowsocks","tag":"old-pre","server":"pre.example","server_port":8388,"method":"aes-256-gcm","password":"secret"}]}
+''';
+
+    for (final mode in ['智能模式', '全局模式', '直连模式']) {
+      final config = jsonDecode(
+        SingBoxChainConfig.merge(
+          primary,
+          pre,
+          mode: mode,
+          geoDir: mode == '智能模式' ? '/tmp/geo' : '',
+        ),
+      ) as Map<String, dynamic>;
+      final outbounds = config['outbounds'] as List;
+      final main = outbounds.first as Map<String, dynamic>;
+      final front = outbounds[1] as Map<String, dynamic>;
+      expect(main['tag'], 'proxy');
+      expect(main['detour'], 'preproxy');
+      expect(front['tag'], 'preproxy');
+      final route = config['route'] as Map<String, dynamic>;
+      expect(
+        route['final'],
+        mode == '直连模式' ? 'direct' : 'proxy',
+      );
+    }
+  });
+
+
+  test('pre-proxy selection survives node persistence', () {
+    final node = ProxyNode(
+      id: 'main',
+      name: 'Main',
+      protocol: ProxyProtocol.vless,
+      server: 'example.com',
+      port: 443,
+      uuid: '11111111-1111-1111-1111-111111111111',
+      preProxyNodeId: 'front',
+    );
+    final restored = ProxyNode.fromJson(node.toJson());
+    expect(restored.preProxyNodeId, 'front');
+  });
+
   test('Xray smart global direct modes compile routing rules', () {
     const base = '{"outbounds":[{"protocol":"vless","tag":"proxy","settings":{}}]}';
 
     final smart = jsonDecode(XrayConfigRouter.apply(base, '智能模式'))
         as Map<String, dynamic>;
     final smartRules = ((smart['routing'] as Map)['rules'] as List);
-    expect(smartRules.length, 3);
+    expect(smartRules.length, 4);
+    expect((smartRules.last as Map)['outboundTag'], 'proxy');
 
     final global = jsonDecode(XrayConfigRouter.apply(base, '全局模式'))
         as Map<String, dynamic>;
-    expect((((global['routing'] as Map)['rules']) as List), isEmpty);
+    final globalRules = ((global['routing'] as Map)['rules'] as List);
+    expect(globalRules.length, 1);
+    expect((globalRules.first as Map)['outboundTag'], 'proxy');
 
     final direct = jsonDecode(XrayConfigRouter.apply(base, '直连模式'))
         as Map<String, dynamic>;
