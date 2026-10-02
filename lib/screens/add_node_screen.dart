@@ -30,6 +30,7 @@ class _AddNodeScreenState extends State<AddNodeScreen> with SingleTickerProvider
   String hy2BbrProfile = '';
   String snellObfsMode = 'none';
   String snellMode = 'default';
+  String preProxyNodeId = '';
 
   final name = TextEditingController();
   final server = TextEditingController();
@@ -126,6 +127,7 @@ class _AddNodeScreenState extends State<AddNodeScreen> with SingleTickerProvider
     snellMode = const ['default', 'unshaped', 'unsafe-raw'].contains(n.snellMode)
         ? n.snellMode
         : 'default';
+    preProxyNodeId = n.preProxyNodeId;
     sni.text = n.sni;
     alpn.text = n.alpn;
     path.text = n.path;
@@ -223,6 +225,16 @@ class _AddNodeScreenState extends State<AddNodeScreen> with SingleTickerProvider
     ].contains(protocol);
     final tlsEnabled =
         protocol == ProxyProtocol.hysteria2 || security != 'none';
+    final availablePreProxies = context
+        .watch<AppState>()
+        .nodes
+        .where((n) => n.id != widget.node?.id)
+        .toList();
+    final effectivePreProxyId = availablePreProxies.any(
+      (n) => n.id == preProxyNodeId,
+    )
+        ? preProxyNodeId
+        : '';
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 6, 18, 28),
@@ -248,6 +260,31 @@ class _AddNodeScreenState extends State<AddNodeScreen> with SingleTickerProvider
         _field('服务器地址', server, 'example.com 或 IP 地址'),
         _field('端口', port, '443', keyboardType: TextInputType.number),
         _field(_credentialLabel, credential, _credentialHint, obscureText: true),
+
+        const SizedBox(height: 14),
+        _label('前置代理'),
+        DropdownButtonFormField<String>(
+          value: effectivePreProxyId,
+          items: [
+            const DropdownMenuItem(
+              value: '',
+              child: Text('无（直接连接该节点）'),
+            ),
+            ...availablePreProxies.map(
+              (n) => DropdownMenuItem(
+                value: n.id,
+                child: Text(
+                  '${n.name} · ${n.protocol.label}',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ],
+          onChanged: (v) => setState(() => preProxyNodeId = v ?? ''),
+          decoration: const InputDecoration(
+            helperText: '启用后：本节点 → 前置节点 → Internet',
+          ),
+        ),
 
         const SizedBox(height: 14),
         _label('网络类型'),
@@ -648,6 +685,7 @@ class _AddNodeScreenState extends State<AddNodeScreen> with SingleTickerProvider
       snellObfsMode: snellObfsMode,
       snellObfsHost: snellObfsHost.text.trim(),
       snellMode: snellMode,
+      preProxyNodeId: effectivePreProxyId,
       snellVersion: snellVersion,
       favorite: old?.favorite ?? false,
       latencyMs: old?.latencyMs,
