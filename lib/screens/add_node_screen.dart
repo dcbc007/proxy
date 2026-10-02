@@ -685,7 +685,7 @@ class _AddNodeScreenState extends State<AddNodeScreen> with SingleTickerProvider
       snellObfsMode: snellObfsMode,
       snellObfsHost: snellObfsHost.text.trim(),
       snellMode: snellMode,
-      preProxyNodeId: effectivePreProxyId,
+      preProxyNodeId: preProxyNodeId,
       snellVersion: snellVersion,
       favorite: old?.favorite ?? false,
       latencyMs: old?.latencyMs,
