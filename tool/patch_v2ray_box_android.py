@@ -510,3 +510,153 @@ bs = bs.replace(old_config, new_config, 1)
 
 bp.write_text(bs, encoding="utf-8")
 print("Patched Android Xray TUN bridge routing modes.")
+
+
+
+# Optimize Smart/Direct mode latency: use the underlying Android network DNS
+# instead of pinning all Xray DNS lookups to 1.1.1.1, and avoid IPIfNonMatch
+# re-resolution in the TUN bridge. Also clear stale DNS overrides when switching.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+bridge_sig = '''        private fun buildXrayTunBridge(
+            context: Context,
+            routingMode: String = "GLOBAL"
+        ): String {
+'''
+helpers = '''        private fun inferRoutingModeFromXrayConfig(configJson: String): String {
+            return runCatching {
+                val root = com.google.gson.JsonParser.parseString(configJson).asJsonObject
+                val routing = root.getAsJsonObject("routing")
+                val rules = routing?.getAsJsonArray("rules")
+                val text = rules?.toString().orEmpty()
+                if (text.contains("geosite:cn") || text.contains("geoip:cn")) {
+                    "SMART"
+                } else {
+                    val last = rules?.lastOrNull()?.asJsonObject
+                    when (last?.get("outboundTag")?.asString) {
+                        "direct" -> "DIRECT"
+                        else -> "GLOBAL"
+                    }
+                }
+            }.getOrElse {
+                Log.w(TAG, "Unable to infer Xray routing mode: \${it.message}")
+                "GLOBAL"
+            }
+        }
+
+        private fun underlyingDnsServer(context: Context): String? {
+            return runCatching {
+                val cm = V2rayBoxPlugin.connectivity
+                    ?: context.getSystemService(android.net.ConnectivityManager::class.java)
+                val network = DefaultNetworkMonitor.defaultNetwork ?: cm.activeNetwork
+                val props = network?.let { cm.getLinkProperties(it) }
+                val address = props?.dnsServers?.firstOrNull {
+                    !it.isLoopbackAddress && !it.isAnyLocalAddress
+                } ?: return@runCatching null
+                val host = address.hostAddress?.substringBefore('%')
+                    ?.takeIf { it.isNotBlank() } ?: return@runCatching null
+                if (address is java.net.Inet6Address) "[$host]:53" else "$host:53"
+            }.getOrNull()
+        }
+
+        private fun dnsServerForRoutingMode(context: Context, routingMode: String): String? {
+            if (routingMode == "GLOBAL") return XRAY_DNS_SERVER
+            val systemDns = underlyingDnsServer(context)
+            Log.d(TAG, "Using underlying DNS for $routingMode: \${systemDns ?: "system/default"}")
+            return systemDns
+        }
+
+        private fun buildXrayTunBridge(
+            context: Context,
+            routingMode: String = "GLOBAL"
+        ): String {
+'''
+if bridge_sig not in bs:
+    raise SystemExit("1.1.6 bridge signature pattern not found")
+bs = bs.replace(bridge_sig, helpers, 1)
+
+bs = bs.replace(
+    '''"settings" to mapOf("domainStrategy" to "UseIP")''',
+    '''"settings" to mapOf("domainStrategy" to "AsIs")''',
+    1
+)
+bs = bs.replace(
+    '''"domainStrategy" to "IPIfNonMatch",
+                    "domainMatcher" to "hybrid",''',
+    '''"domainStrategy" to "AsIs",
+                    "domainMatcher" to "hybrid",''',
+    1
+)
+bs = bs.replace(
+    '''"destOverride" to listOf("http", "tls", "quic")
+                        )''',
+    '''"destOverride" to listOf("http", "tls", "quic"),
+                            "routeOnly" to true
+                        )''',
+    1
+)
+
+old_xray_dns = '''            XrayBridge.configureSocketProtection(
+                    protectFd = { fd -> platformInterface.autoDetectInterfaceControl(fd) },
+                    dnsServer = XRAY_DNS_SERVER
+                )
+'''
+new_xray_dns = '''            val routingMode = inferRoutingModeFromXrayConfig(content)
+            val dnsServer = dnsServerForRoutingMode(service, routingMode)
+            emitServiceLog("Xray routing=$routingMode dns=\${dnsServer ?: "system/default"}", force = true)
+            XrayBridge.configureSocketProtection(
+                    protectFd = { fd -> platformInterface.autoDetectInterfaceControl(fd) },
+                    dnsServer = dnsServer
+                )
+'''
+if old_xray_dns not in bs:
+    raise SystemExit("Xray configureSocketProtection DNS pattern not found")
+bs = bs.replace(old_xray_dns, new_xray_dns, 1)
+
+old_bridge_dns = '''                XrayBridge.configureSocketProtection(
+                    protectFd = { fd -> platformInterface.autoDetectInterfaceControl(fd) },
+                    dnsServer = XRAY_DNS_SERVER
+                )
+                val controller = XrayBridge.newCoreController(this)
+'''
+new_bridge_dns = '''                val bridgeRoutingMode = inferRoutingModeFromXrayConfig(bridgeContent)
+                val bridgeDnsServer = dnsServerForRoutingMode(service, bridgeRoutingMode)
+                emitServiceLog(
+                    "TUN bridge routing=$bridgeRoutingMode dns=\${bridgeDnsServer ?: "system/default"}",
+                    force = true
+                )
+                XrayBridge.configureSocketProtection(
+                    protectFd = { fd -> platformInterface.autoDetectInterfaceControl(fd) },
+                    dnsServer = bridgeDnsServer
+                )
+                val controller = XrayBridge.newCoreController(this)
+'''
+if old_bridge_dns not in bs:
+    raise SystemExit("sing-box bridge configureSocketProtection DNS pattern not found")
+bs = bs.replace(old_bridge_dns, new_bridge_dns, 1)
+
+bp.write_text(bs, encoding="utf-8")
+
+xp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/xray/XrayBridge.kt")
+xs = xp.read_text(encoding="utf-8")
+old_dns_hook = '''        if (!dnsServer.isNullOrBlank()) {
+            runCatching { LibXray.initDns(controller, dnsServer) }
+                .onFailure { Log.w(TAG, "initDns failed: \${it.message}") }
+        }
+'''
+new_dns_hook = '''        // DNS override is process-global inside libXray. Always clear the
+        // previous mode's resolver before optionally applying a new one.
+        runCatching { LibXray.resetDns() }
+            .onFailure { Log.w(TAG, "resetDns before reconfigure failed: \${it.message}") }
+        if (!dnsServer.isNullOrBlank()) {
+            runCatching { LibXray.initDns(controller, dnsServer) }
+                .onFailure { Log.w(TAG, "initDns failed: \${it.message}") }
+        }
+'''
+if old_dns_hook not in xs:
+    raise SystemExit("XrayBridge DNS hook pattern not found")
+xs = xs.replace(old_dns_hook, new_dns_hook, 1)
+xp.write_text(xs, encoding="utf-8")
+
+print("Patched Smart/Direct DNS path and removed duplicate route DNS resolution.")
