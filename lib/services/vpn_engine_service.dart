@@ -10,6 +10,7 @@ import 'singbox_config_builder.dart';
 import 'geo_asset_service.dart';
 import 'xray_config_router.dart';
 import 'singbox_config_router.dart';
+import 'singbox_chain_config.dart';
 
 class VpnEngineService {
   static const MethodChannel _vpnPermissionChannel = MethodChannel(
@@ -184,28 +185,6 @@ class VpnEngineService {
     return raw;
   }
 
-  Map<String, dynamic> _firstProxyOutbound(String raw, String tag) {
-    final root = Map<String, dynamic>.from(jsonDecode(raw) as Map);
-    final list = (root['outbounds'] as List?) ?? const [];
-    for (final item in list) {
-      if (item is! Map) continue;
-      final outbound = Map<String, dynamic>.from(item);
-      final type = outbound['type']?.toString().toLowerCase() ?? '';
-      if (type == 'direct' ||
-          type == 'block' ||
-          type == 'dns' ||
-          type == 'selector' ||
-          type == 'urltest') {
-        continue;
-      }
-      outbound['tag'] = tag;
-      outbound.remove('domain_resolver');
-      outbound.remove('detour');
-      return outbound;
-    }
-    throw StateError('未找到可用代理出站');
-  }
-
   Future<String> _buildSingBoxChain(
     ProxyNode node,
     ProxyNode preProxy, {
@@ -214,29 +193,9 @@ class VpnEngineService {
   }) async {
     final primaryRaw = await _rawSingBoxForNode(node);
     final preRaw = await _rawSingBoxForNode(preProxy);
-    final primary = _firstProxyOutbound(primaryRaw, 'proxy');
-    final pre = _firstProxyOutbound(preRaw, 'preproxy');
-    primary['detour'] = 'preproxy';
-
-    final root = <String, dynamic>{
-      'log': {'level': 'warn'},
-      'inbounds': [
-        {
-          'type': 'mixed',
-          'tag': 'mixed-in',
-          'listen': '127.0.0.1',
-          'listen_port': 10808,
-        },
-      ],
-      'outbounds': [
-        primary,
-        pre,
-        {'type': 'direct', 'tag': 'direct'},
-      ],
-      'route': {'final': 'proxy'},
-    };
-    return SingBoxConfigRouter.apply(
-      jsonEncode(root),
+    return SingBoxChainConfig.merge(
+      primaryRaw,
+      preRaw,
       mode: mode,
       geoDir: geoDir,
     );
