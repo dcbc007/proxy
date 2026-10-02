@@ -65,6 +65,7 @@ class ProxyNode {
     this.snellObfsMode = 'none',
     this.snellObfsHost = '',
     this.snellMode = 'default',
+    this.preProxyNodeId = '',
     this.sourceLink = '',
     this.remark = '',
     this.favorite = false,
@@ -112,6 +113,7 @@ class ProxyNode {
   String snellObfsMode;
   String snellObfsHost;
   String snellMode;
+  String preProxyNodeId;
   String sourceLink;
   String remark;
   bool favorite;
@@ -274,6 +276,7 @@ class ProxyNode {
         'snellObfsMode': snellObfsMode,
         'snellObfsHost': snellObfsHost,
         'snellMode': snellMode,
+        'preProxyNodeId': preProxyNodeId,
         'sourceLink': sourceLink,
         'remark': remark,
         'favorite': favorite,
@@ -328,6 +331,7 @@ class ProxyNode {
         snellObfsMode: j['snellObfsMode']?.toString() ?? 'none',
         snellObfsHost: j['snellObfsHost']?.toString() ?? '',
         snellMode: j['snellMode']?.toString() ?? 'default',
+        preProxyNodeId: j['preProxyNodeId']?.toString() ?? '',
         sourceLink: j['sourceLink']?.toString() ?? '',
         remark: j['remark']?.toString() ?? '',
         favorite: j['favorite'] == true,
