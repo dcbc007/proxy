@@ -6,6 +6,13 @@ class GeoAssetService {
   static const MethodChannel _channel =
       MethodChannel('aurum_proxy/vpn_permission');
 
+  static const Map<String, int> _minimumBytes = {
+    'geoip.dat': 100 * 1024,
+    'geosite.dat': 100 * 1024,
+    'geoip-cn.srs': 4 * 1024,
+    'geosite-geolocation-cn.srs': 4 * 1024,
+  };
+
   static const Map<String, List<String>> _sources = {
     'geoip.dat': [
       'https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geoip.dat',
@@ -39,7 +46,8 @@ class GeoAssetService {
 
     for (final name in _sources.keys) {
       final file = File('$dir/$name');
-      if (await file.exists() && await file.length() > 1024) continue;
+      final minimum = _minimumBytes[name] ?? 1024;
+      if (await file.exists() && await file.length() >= minimum) continue;
       try {
         final data = await rootBundle.load('assets/geo/$name');
         await file.writeAsBytes(
@@ -91,8 +99,9 @@ class GeoAssetService {
     for (final url in urls) {
       try {
         await _download(client, url, target);
-        if (await target.exists() && await target.length() > 1024) return;
-        throw FileSystemException('$name 文件过小', target.path);
+        final minimum = _minimumBytes[name] ?? 1024;
+        if (await target.exists() && await target.length() >= minimum) return;
+        throw FileSystemException('$name 文件过小或不完整', target.path);
       } catch (e) {
         lastError = e;
       }
@@ -136,7 +145,9 @@ class GeoAssetService {
         await sink.close();
         rethrow;
       }
-      if (!await temp.exists() || await temp.length() <= 1024) {
+      final name = target.uri.pathSegments.last;
+      final minimum = _minimumBytes[name] ?? 1024;
+      if (!await temp.exists() || await temp.length() < minimum) {
         if (await temp.exists()) await temp.delete();
         throw FileSystemException('下载文件为空或不完整', target.path);
       }
@@ -164,7 +175,8 @@ class GeoAssetService {
     if (dir.isEmpty) return false;
     for (final name in _sources.keys) {
       final f = File('$dir/$name');
-      if (!await f.exists() || await f.length() <= 1024) return false;
+      final minimum = _minimumBytes[name] ?? 1024;
+      if (!await f.exists() || await f.length() < minimum) return false;
     }
     return true;
   }
