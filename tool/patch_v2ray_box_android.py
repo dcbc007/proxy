@@ -724,3 +724,122 @@ vns = vns.replace(old_builder, new_builder, 1)
 
 vpns.write_text(vns, encoding="utf-8")
 print("Patched Android VPN DNS to underlying network resolvers.")
+
+# 1.1.8 Smart DNS routing:
+# - Direct mode keeps underlying DNS and direct routing.
+# - Smart/Global advertise public DNS targets to Android apps, but DNS packets
+#   are routed through the proxy path.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+old_smart_dns = '''                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "port" to "53",
+                            "outboundTag" to "direct"
+                        )
+                    )
+'''
+new_smart_dns = '''                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "port" to "53",
+                            "outboundTag" to "proxy"
+                        )
+                    )
+'''
+if old_smart_dns not in bs:
+    raise SystemExit("SMART DNS direct rule pattern not found")
+bs = bs.replace(old_smart_dns, new_smart_dns, 1)
+
+old_dns_mode = '''        private fun dnsServerForRoutingMode(context: Context, routingMode: String): String? {
+            if (routingMode == "GLOBAL") return XRAY_DNS_SERVER
+            val systemDns = underlyingDnsServer(context)
+            Log.d(TAG, "Using underlying DNS for $routingMode: ${systemDns ?: \"system/default\"}")
+            return systemDns
+        }
+'''
+new_dns_mode = '''        private fun dnsServerForRoutingMode(context: Context, routingMode: String): String? {
+            val systemDns = underlyingDnsServer(context)
+            Log.d(TAG, "Core endpoint DNS for $routingMode: ${systemDns ?: \"system/default\"}")
+            return systemDns
+        }
+'''
+if old_dns_mode not in bs:
+    raise SystemExit("dnsServerForRoutingMode pattern not found")
+bs = bs.replace(old_dns_mode, new_dns_mode, 1)
+bp.write_text(bs, encoding="utf-8")
+
+vpns = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/VPNService.kt")
+vns = vpns.read_text(encoding="utf-8")
+
+old_selected = '''        val selectedDns = if (underlyingDns.isNotEmpty()) {
+            underlyingDns
+        } else {
+            listOf(
+                java.net.InetAddress.getByName("223.5.5.5"),
+                java.net.InetAddress.getByName("119.29.29.29")
+            )
+        }
+
+        Log.d(
+            TAG,
+            "VPN DNS from underlying network: " +
+                selectedDns.joinToString(",") { it.hostAddress ?: it.toString() }
+        )
+'''
+new_selected = '''        val routingMode = runCatching {
+            val content = java.io.File(Settings.activeConfigPath).readText()
+            val root = com.google.gson.JsonParser.parseString(content).asJsonObject
+            val singRoute = root.getAsJsonObject("route")
+            if (singRoute != null) {
+                val finalTag = singRoute.get("final")?.asString.orEmpty()
+                val text = singRoute.toString()
+                when {
+                    finalTag == "direct" -> "DIRECT"
+                    text.contains("geosite-cn") || text.contains("geoip-cn") -> "SMART"
+                    else -> "GLOBAL"
+                }
+            } else {
+                val xrayRouting = root.getAsJsonObject("routing")
+                val rules = xrayRouting?.getAsJsonArray("rules")
+                val text = rules?.toString().orEmpty()
+                when {
+                    text.contains("geosite:cn") || text.contains("geoip:cn") -> "SMART"
+                    rules?.lastOrNull()?.asJsonObject?.get("outboundTag")?.asString == "direct" -> "DIRECT"
+                    else -> "GLOBAL"
+                }
+            }
+        }.getOrElse {
+            Log.w(TAG, "Unable to infer VPN routing mode for DNS: ${it.message}")
+            "GLOBAL"
+        }
+
+        val selectedDns = if (routingMode == "DIRECT") {
+            if (underlyingDns.isNotEmpty()) {
+                underlyingDns
+            } else {
+                listOf(
+                    java.net.InetAddress.getByName("223.5.5.5"),
+                    java.net.InetAddress.getByName("119.29.29.29")
+                )
+            }
+        } else {
+            listOf(
+                java.net.InetAddress.getByName("1.1.1.1"),
+                java.net.InetAddress.getByName("8.8.8.8")
+            )
+        }
+
+        Log.d(
+            TAG,
+            "VPN DNS mode=$routingMode servers=" +
+                selectedDns.joinToString(",") { it.hostAddress ?: it.toString() }
+        )
+'''
+if old_selected not in vns:
+    raise SystemExit("VPN selectedDns pattern not found")
+vns = vns.replace(old_selected, new_selected, 1)
+vpns.write_text(vns, encoding="utf-8")
+
+print("Patched Smart/Global DNS to proxy path; Direct keeps system DNS.")
