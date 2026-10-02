@@ -876,13 +876,5 @@ if old_strategy not in bs:
     raise SystemExit("bridge AsIs strategy pattern not found")
 bs = bs.replace(old_strategy, new_strategy, 1)
 
-old_log = '''            Log.d(TAG, "Xray TUN bridge routing mode=$routingMode rules=${routingRules.size}")'''
-new_log = '''            Log.d(
-                TAG,
-                "Xray TUN bridge routing mode=$routingMode domainStrategy=$routeDomainStrategy rules=${routingRules.size}"
-            )'''
-if old_log in bs:
-    bs = bs.replace(old_log, new_log, 1)
-
 bp.write_text(bs, encoding="utf-8")
 print("Patched Smart routing with IPIfNonMatch and domain:cn fallback.")
