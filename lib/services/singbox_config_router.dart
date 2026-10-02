@@ -1,7 +1,11 @@
 import 'dart:convert';
 
 class SingBoxConfigRouter {
-  static String apply(String raw, {String mode = '智能模式', String geoDir = ''}) {
+  static String apply(
+    String raw, {
+    String mode = '智能模式',
+    String geoDir = '',
+  }) {
     final root = Map<String, dynamic>.from(jsonDecode(raw) as Map);
     final outbounds = ((root['outbounds'] as List?) ?? const [])
         .map((e) => Map<String, dynamic>.from(e as Map))
@@ -12,8 +16,8 @@ class SingBoxConfigRouter {
     }
     root['outbounds'] = outbounds;
 
-    // Android VpnService + Xray own the TUN descriptor. A standalone
-    // sing-box process has no permission to create another TUN device.
+    // Android owns the TUN. Xray is transport-only and forwards every
+    // TCP/UDP flow to this mixed inbound. sing-box is the only routing core.
     root['inbounds'] = [
       {
         'type': 'mixed',
@@ -23,11 +27,26 @@ class SingBoxConfigRouter {
       },
     ];
     root['log'] = {'level': 'warn', 'timestamp': false};
+
     final proxyTag = _proxyTag(outbounds);
+    final smartMode = mode == '智能模式';
     final directMode = mode == '直连模式';
+
+    // Official sing-box China-client pattern:
+    // - China DNS goes directly to AliDNS.
+    // - Foreign DNS goes through the selected proxy.
+    // - Unknown domains are probed with China DNS; a CN answer is accepted,
+    //   otherwise they fall back to the proxied resolver.
     root['dns'] = {
       'servers': [
-        {'type': 'local', 'tag': 'dns-direct'},
+        {
+          'type': 'https',
+          'tag': 'dns-cn',
+          'server': '223.5.5.5',
+          'server_port': 443,
+          'path': '/dns-query',
+          'detour': 'direct',
+        },
         {
           'type': 'https',
           'tag': 'dns-remote',
@@ -37,87 +56,129 @@ class SingBoxConfigRouter {
           'detour': proxyTag,
         },
       ],
-      'final': directMode ? 'dns-direct' : 'dns-remote',
+      'final': directMode ? 'dns-cn' : 'dns-remote',
       'strategy': 'prefer_ipv4',
-      'independent_cache': true,
-      if (mode == '智能模式')
+      if (smartMode)
         'rules': [
           {
             'domain_suffix': ['.cn'],
-            'server': 'dns-direct',
+            'action': 'route',
+            'server': 'dns-cn',
           },
           {
-            'rule_set': ['geosite-cn'],
-            'server': 'dns-direct',
+            'rule_set': ['geosite-geolocation-cn'],
+            'action': 'route',
+            'server': 'dns-cn',
+          },
+          {
+            'rule_set': ['geosite-geolocation-!cn'],
+            'action': 'route',
+            'server': 'dns-remote',
+          },
+          {
+            'action': 'evaluate',
+            'server': 'dns-cn',
+            'tag': 'cn-probe',
+          },
+          {
+            'match_response': 'cn-probe',
+            'rule_set': ['geoip-cn'],
+            'action': 'respond',
+          },
+          {
+            'action': 'route',
+            'server': 'dns-remote',
           },
         ],
     };
-    for (final outbound in outbounds) {
-      if (outbound['type'] == 'direct') {
-        outbound['domain_resolver'] = 'dns-direct';
-      }
-    }
 
-    final route = <String, dynamic>{};
+    final route = <String, dynamic>{
+      'default_domain_resolver': 'dns-cn',
+    };
+
     switch (mode) {
       case '直连模式':
+        route['rules'] = [
+          {
+            'type': 'logical',
+            'mode': 'or',
+            'rules': [
+              {'protocol': 'dns'},
+              {'port': 53},
+            ],
+            'action': 'hijack-dns',
+          },
+        ];
         route['final'] = 'direct';
         break;
+
       case '全局模式':
-        route['final'] = _proxyTag(outbounds);
-        break;
-      default:
-        final proxy = _proxyTag(outbounds);
-        route['final'] = proxy;
         route['rules'] = [
-          {'ip_is_private': true, 'action': 'route', 'outbound': 'direct'},
+          {'action': 'sniff'},
+          {
+            'type': 'logical',
+            'mode': 'or',
+            'rules': [
+              {'protocol': 'dns'},
+              {'port': 53},
+            ],
+            'action': 'hijack-dns',
+          },
+        ];
+        route['final'] = proxyTag;
+        break;
+
+      default:
+        route['rules'] = [
+          // Required when the upstream TUN bridge hands sing-box an IP
+          // destination. This restores the TLS/HTTP domain before geosite
+          // matching and is part of sing-box's official China-client example.
+          {'action': 'sniff'},
+          {
+            'type': 'logical',
+            'mode': 'or',
+            'rules': [
+              {'protocol': 'dns'},
+              {'port': 53},
+            ],
+            'action': 'hijack-dns',
+          },
+          {
+            'ip_is_private': true,
+            'action': 'route',
+            'outbound': 'direct',
+          },
           {
             'domain_suffix': ['.cn'],
             'action': 'route',
             'outbound': 'direct',
           },
           {
-            'rule_set': ['geosite-cn', 'geoip-cn'],
+            'rule_set': ['geosite-geolocation-cn'],
+            'action': 'route',
+            'outbound': 'direct',
+          },
+          {
+            'type': 'logical',
+            'mode': 'and',
+            'rules': [
+              {'rule_set': ['geoip-cn']},
+              {
+                'rule_set': ['geosite-geolocation-!cn'],
+                'invert': true,
+              },
+            ],
             'action': 'route',
             'outbound': 'direct',
           },
         ];
-        route['rule_set'] = geoDir.isNotEmpty
-            ? [
-                {
-                  'type': 'local',
-                  'tag': 'geosite-cn',
-                  'format': 'binary',
-                  'path': '$geoDir/geosite-geolocation-cn.srs',
-                },
-                {
-                  'type': 'local',
-                  'tag': 'geoip-cn',
-                  'format': 'binary',
-                  'path': '$geoDir/geoip-cn.srs',
-                },
-              ]
-            : [
-                {
-                  'type': 'remote',
-                  'tag': 'geosite-cn',
-                  'format': 'binary',
-                  'url': 'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs',
-                  'download_detour': 'direct',
-                  'update_interval': '1d',
-                },
-                {
-                  'type': 'remote',
-                  'tag': 'geoip-cn',
-                  'format': 'binary',
-                  'url': 'https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs',
-                  'download_detour': 'direct',
-                  'update_interval': '1d',
-                },
-              ];
+        route['rule_set'] = _smartRuleSets(geoDir);
+        route['final'] = proxyTag;
         break;
     }
 
+    // Preserve unrelated parser-generated route options, but never preserve
+    // another set of rules/final/rule-sets that could override our mode.
     final oldRoute = root['route'];
     if (oldRoute is Map) {
       for (final e in oldRoute.entries) {
@@ -126,32 +187,87 @@ class SingBoxConfigRouter {
             key != 'rules' &&
             key != 'rule_set' &&
             key != 'final' &&
-            key != 'auto_detect_interface') {
+            key != 'auto_detect_interface' &&
+            key != 'default_domain_resolver') {
           route[key] = e.value;
         }
       }
     }
+
     root['route'] = route;
-    route['default_domain_resolver'] = {
-      'server': 'dns-direct',
-      'strategy': 'prefer_ipv4',
-    };
-    // Match DNS by its port; avoid sniffing every flow a second time.
-    route['rules'] = [
-      {'port': 53, 'action': 'hijack-dns'},
-      ...((route['rules'] as List?) ?? const []),
-    ];
     root['experimental'] = {
+      'cache_file': {
+        'enabled': true,
+        'store_rdrc': true,
+      },
       'clash_api': {'external_controller': '127.0.0.1:9090'},
     };
     return jsonEncode(root);
+  }
+
+  static List<Map<String, dynamic>> _smartRuleSets(String geoDir) {
+    if (geoDir.isNotEmpty) {
+      return [
+        {
+          'type': 'local',
+          'tag': 'geoip-cn',
+          'format': 'binary',
+          'path': '$geoDir/geoip-cn.srs',
+        },
+        {
+          'type': 'local',
+          'tag': 'geosite-geolocation-cn',
+          'format': 'binary',
+          'path': '$geoDir/geosite-geolocation-cn.srs',
+        },
+        {
+          'type': 'local',
+          'tag': 'geosite-geolocation-!cn',
+          'format': 'binary',
+          'path': '$geoDir/geosite-geolocation-!cn.srs',
+        },
+      ];
+    }
+
+    return [
+      {
+        'type': 'remote',
+        'tag': 'geoip-cn',
+        'format': 'binary',
+        'url':
+            'https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs',
+        'update_interval': '1d',
+      },
+      {
+        'type': 'remote',
+        'tag': 'geosite-geolocation-cn',
+        'format': 'binary',
+        'url':
+            'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs',
+        'update_interval': '1d',
+      },
+      {
+        'type': 'remote',
+        'tag': 'geosite-geolocation-!cn',
+        'format': 'binary',
+        'url':
+            'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs',
+        'update_interval': '1d',
+      },
+    ];
   }
 
   static String _proxyTag(List<Map<String, dynamic>> outbounds) {
     for (final o in outbounds) {
       final tag = o['tag']?.toString() ?? '';
       final type = o['type']?.toString().toLowerCase() ?? '';
-      if (tag != 'direct' && type != 'direct' && tag.isNotEmpty) return tag;
+      if (tag != 'direct' &&
+          type != 'direct' &&
+          type != 'block' &&
+          type != 'dns' &&
+          tag.isNotEmpty) {
+        return tag;
+      }
     }
     if (outbounds.isNotEmpty) {
       outbounds.first['tag'] = 'proxy';
