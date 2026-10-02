@@ -9,6 +9,8 @@ class LocalStore {
   static const _subsKey = 'subscriptions_v1';
   static const _selectedKey = 'selected_node_v1';
   static const _geoUpdatedKey = 'geo_updated_at_v1';
+  static const _modeKey = 'route_mode_v1';
+  static const _autoConnectKey = 'auto_connect_v1';
 
   Future<List<ProxyNode>> loadNodes() async {
     final p = await SharedPreferences.getInstance();
@@ -63,5 +65,28 @@ class LocalStore {
   Future<void> saveGeoUpdatedAt(DateTime value) async {
     final p = await SharedPreferences.getInstance();
     await p.setString(_geoUpdatedKey, value.toIso8601String());
+  }
+
+  Future<String> loadMode() async {
+    final p = await SharedPreferences.getInstance();
+    final value = p.getString(_modeKey) ?? '智能模式';
+    return const ['智能模式', '全局模式', '直连模式'].contains(value)
+        ? value
+        : '智能模式';
+  }
+
+  Future<void> saveMode(String value) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_modeKey, value);
+  }
+
+  Future<bool> loadAutoConnect() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getBool(_autoConnectKey) ?? false;
+  }
+
+  Future<void> saveAutoConnect(bool value) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_autoConnectKey, value);
   }
 }

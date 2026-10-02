@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:v2ray_box/v2ray_box.dart';
 
@@ -8,10 +10,12 @@ import 'singbox_config_builder.dart';
 import 'geo_asset_service.dart';
 import 'xray_config_router.dart';
 import 'singbox_config_router.dart';
+import 'singbox_chain_config.dart';
 
 class VpnEngineService {
-  static const MethodChannel _vpnPermissionChannel =
-      MethodChannel('aurum_proxy/vpn_permission');
+  static const MethodChannel _vpnPermissionChannel = MethodChannel(
+    'aurum_proxy/vpn_permission',
+  );
 
   final V2rayBox box = V2rayBox();
   final GeoAssetService _geo = GeoAssetService();
@@ -30,16 +34,33 @@ class VpnEngineService {
   Future<bool> connect(
     ProxyNode node, {
     String mode = '智能模式',
+    ProxyNode? preProxy,
   }) async {
     if (!await ensureVpnPermission()) return false;
 
-    final useSingBox = node.protocol == ProxyProtocol.snell ||
+    final useChain = preProxy != null;
+    final useSingBox = useChain ||
+        node.protocol == ProxyProtocol.snell ||
         node.protocol == ProxyProtocol.hysteria2;
     await box.setCoreEngine(useSingBox ? 'singbox' : 'xray');
     await box.setServiceMode(VpnMode.vpn);
 
     if (useSingBox) {
-      final geoDir = await _geo.filesDir;
+      final geoDir = mode == '智能模式' && await _geo.hasSmartRuleAssets()
+          ? await _geo.filesDir
+          : '';
+
+      if (useChain) {
+        final json = await _buildSingBoxChain(
+          node,
+          preProxy,
+          mode: mode,
+          geoDir: geoDir,
+        );
+        return box
+            .connectWithJson(json, name: node.name)
+            .timeout(const Duration(seconds: 15), onTimeout: () => false);
+      }
 
       if (node.protocol == ProxyProtocol.snell) {
         final json = SingBoxConfigBuilder.fromNode(
@@ -52,9 +73,12 @@ class VpnEngineService {
             .timeout(const Duration(seconds: 15), onTimeout: () => false);
       }
 
-      // Preserve the complete Hysteria2 share-link semantics (obfs, insecure,
-      // bandwidth and future fields) by letting sing-box/v2ray_box parse the
-      // link first, then only replacing the routing section.
+      // Keep Hysteria2 on the core's native share-link parser for both
+      // verified certificates and insecure/self-signed certificates.
+      // ProxyNode.connectionLink already carries the advanced HY2 fields
+      // (SNI, insecure, ALPN, obfs, bandwidth, port hopping, etc.).
+      // This restores the certificate compatibility path used by 1.1.1 while
+      // preserving the new 1.1.2 options.
       final generated = await box.generateConfig(node.connectionLink);
       if (generated.trim().isEmpty) return false;
       final routed = SingBoxConfigRouter.apply(
@@ -118,42 +142,63 @@ class VpnEngineService {
   Future<int> ping(
     ProxyNode node, {
     bool allowTunnelFallback = false,
+    ProxyNode? preProxy,
   }) async {
-    if (node.protocol == ProxyProtocol.snell) return -1;
-    final value = await box.ping(node.connectionLink, timeout: 7000);
-    if (value > 0) return value;
-
-    // libXray's standalone URL tester does not understand every sing-box-only
-    // protocol (notably Hysteria2). When that node is already connected, time
-    // a small HTTPS request through the active Android VPN as the effective
-    // tunnel latency shown on Home.
-    if (allowTunnelFallback && node.protocol == ProxyProtocol.hysteria2) {
-      return _measureActiveTunnelLatency();
+    final singbox = preProxy != null ||
+        node.protocol == ProxyProtocol.snell ||
+        node.protocol == ProxyProtocol.hysteria2;
+    if (!singbox) {
+      return box
+          .ping(node.connectionLink, timeout: 6000)
+          .timeout(const Duration(seconds: 9), onTimeout: () => -1);
     }
-    return -1;
+    if (!Platform.isAndroid) return -1;
+    await box.setCoreEngine('singbox');
+    final raw = preProxy != null
+        ? await _buildSingBoxChain(node, preProxy, mode: '全局模式')
+        : (node.protocol == ProxyProtocol.snell
+            ? SingBoxConfigBuilder.fromNode(node, mode: '全局模式')
+            : await box.generateConfig(node.connectionLink));
+    if (raw.trim().isEmpty) return -1;
+    final config = SingBoxConfigRouter.apply(raw, mode: '全局模式');
+    final decoded = jsonDecode(config) as Map<String, dynamic>;
+    final tag = (decoded['route'] as Map)['final'] as String;
+    return await _vpnPermissionChannel
+            .invokeMethod<int>('measureNodeDelay', {
+              // Reuse the running core for Home; independent temporary cores allow
+              // testing other nodes without disconnecting the current VPN.
+              if (!allowTunnelFallback) 'config': config,
+              'tag': tag,
+            })
+            .timeout(const Duration(seconds: 13), onTimeout: () => -1) ??
+        -1;
   }
 
-  Future<int> _measureActiveTunnelLatency() async {
-    final client = HttpClient();
-    client.connectionTimeout = const Duration(seconds: 5);
-    final sw = Stopwatch()..start();
-    try {
-      final request = await client.getUrl(
-        Uri.parse('https://www.gstatic.com/generate_204'),
-      );
-      request.followRedirects = false;
-      final response = await request.close().timeout(const Duration(seconds: 7));
-      await response.drain<void>();
-      sw.stop();
-      if (response.statusCode >= 200 && response.statusCode < 500) {
-        return sw.elapsedMilliseconds.clamp(1, 60000).toInt();
-      }
-    } catch (_) {
-      // Fall through to -1.
-    } finally {
-      client.close(force: true);
+  Future<String> _rawSingBoxForNode(ProxyNode node) async {
+    if (node.protocol == ProxyProtocol.snell) {
+      return SingBoxConfigBuilder.fromNode(node, mode: '全局模式');
     }
-    return -1;
+    final raw = await box.generateConfig(node.connectionLink);
+    if (raw.trim().isEmpty) {
+      throw StateError('无法生成 ${node.name} 的 sing-box 配置');
+    }
+    return raw;
+  }
+
+  Future<String> _buildSingBoxChain(
+    ProxyNode node,
+    ProxyNode preProxy, {
+    required String mode,
+    String geoDir = '',
+  }) async {
+    final primaryRaw = await _rawSingBoxForNode(node);
+    final preRaw = await _rawSingBoxForNode(preProxy);
+    return SingBoxChainConfig.merge(
+      primaryRaw,
+      preRaw,
+      mode: mode,
+      geoDir: geoDir,
+    );
   }
 
   Future<void> setRoutingMode(String mode) async {
@@ -161,6 +206,7 @@ class VpnEngineService {
     // reconnects the current node after switching mode.
   }
 
-  Future<Map<String, dynamic>> parseSubscription(String url) => box.parseSubscription(url);
+  Future<Map<String, dynamic>> parseSubscription(String url) =>
+      box.parseSubscription(url);
   Future<Map<String, dynamic>> coreInfo() => box.getCoreInfo();
 }
