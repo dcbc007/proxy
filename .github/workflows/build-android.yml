@@ -86,6 +86,22 @@ jobs:
           grep -q '119.29.29.29' "$VPN_SERVICE"
           ! grep -q '.addDnsServer("1.1.1.1")' "$VPN_SERVICE"
           ! grep -q '.addDnsServer("8.8.8.8")' "$VPN_SERVICE"
+          grep -q 'VPN DNS mode=$routingMode servers=' "$VPN_SERVICE"
+          grep -q 'java.net.InetAddress.getByName("1.1.1.1")' "$VPN_SERVICE"
+          grep -q 'java.net.InetAddress.getByName("8.8.8.8")' "$VPN_SERVICE"
+          python3 - <<'PY'
+          from pathlib import Path
+          box = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt").read_text()
+          marker = '"port" to "53"'
+          i = box.find(marker)
+          assert i >= 0, "DNS/53 route missing"
+          window = box[i:i+220]
+          assert '"outboundTag" to "proxy"' in window, window
+          vpn = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/VPNService.kt").read_text()
+          assert 'if (routingMode == "DIRECT")' in vpn
+          assert '"SMART"' in vpn and '"GLOBAL"' in vpn
+          print("Verified Smart/Global DNS proxy routing and Direct system DNS.")
+          PY
 
       - name: Fetch bundled Geo databases
         shell: bash
@@ -184,15 +200,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.1.7-arm64.apk
-          sha256sum dist/AurumProxy-1.1.7-arm64.apk > dist/AurumProxy-1.1.7-arm64.apk.sha256
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.1.8-arm64.apk
+          sha256sum dist/AurumProxy-1.1.8-arm64.apk > dist/AurumProxy-1.1.8-arm64.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AurumProxy-1.1.7-arm64
+          name: AurumProxy-1.1.8-arm64
           path: |
-            dist/AurumProxy-1.1.7-arm64.apk
-            dist/AurumProxy-1.1.7-arm64.apk.sha256
+            dist/AurumProxy-1.1.8-arm64.apk
+            dist/AurumProxy-1.1.8-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
