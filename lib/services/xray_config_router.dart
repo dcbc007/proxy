@@ -21,10 +21,11 @@ class XrayConfigRouter {
       if (protocol == 'freedom' || tag == 'direct') {
         o['tag'] = 'direct';
         if (protocol == 'freedom') {
-          o['settings'] = {
-            ...((o['settings'] as Map?) ?? const {}),
-            'domainStrategy': 'AsIs',
-          };
+          final settings = Map<String, dynamic>.from(
+            (o['settings'] as Map?) ?? const <String, dynamic>{},
+          );
+          settings['domainStrategy'] = 'AsIs';
+          o['settings'] = settings;
         }
         hasDirect = true;
       }
