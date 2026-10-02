@@ -48,15 +48,22 @@ void main() {
       expect(config['outbounds'][0], outbound);
     }
   });
-  test('DNS is intercepted before routing and direct mode uses direct DNS', () {
+  test('DNS is intercepted in sing-box and mode-specific DNS stays correct', () {
     final direct = routed('直连模式');
-    expect(direct['dns']['final'], 'dns-direct');
+    expect(direct['dns']['final'], 'dns-cn');
     expect(direct['route']['final'], 'direct');
-    expect(direct['route']['rules'][0], {'port': 53, 'action': 'hijack-dns'});
+    final directRules = direct['route']['rules'] as List;
+    expect(directRules.length, 1);
+    expect((directRules.first as Map)['type'], 'logical');
+    expect((directRules.first as Map)['action'], 'hijack-dns');
+
     final global = routed('全局模式');
     expect(global['dns']['final'], 'dns-remote');
     expect(global['dns']['servers'][1]['detour'], 'proxy');
     expect(global['route']['final'], 'proxy');
+    final globalRules = global['route']['rules'] as List;
+    expect((globalRules.first as Map)['action'], 'sniff');
+    expect((globalRules[1] as Map)['action'], 'hijack-dns');
     expect(global['dns']['disable_expire'], isNull);
   });
   test('Snell reuses connections without bandwidth caps', () {
