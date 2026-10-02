@@ -17,6 +17,10 @@ if main_activity_template.exists():
     main_activity.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(main_activity_template, main_activity)
 
+probe_template = root / 'platform_templates/android/NodeLatencyProbe.kt'
+if probe_template.exists():
+    shutil.copy2(probe_template, main_activity.parent / 'NodeLatencyProbe.kt')
+
 # Android Gradle (Kotlin DSL current Flutter template)
 kts = root / 'android/app/build.gradle.kts'
 if kts.exists():
