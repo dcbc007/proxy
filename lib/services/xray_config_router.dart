@@ -20,6 +20,12 @@ class XrayConfigRouter {
       final tag = o['tag']?.toString();
       if (protocol == 'freedom' || tag == 'direct') {
         o['tag'] = 'direct';
+        if (protocol == 'freedom') {
+          o['settings'] = {
+            ...((o['settings'] as Map?) ?? const {}),
+            'domainStrategy': 'AsIs',
+          };
+        }
         hasDirect = true;
       }
     }
@@ -27,7 +33,7 @@ class XrayConfigRouter {
       outbounds.add({
         'tag': 'direct',
         'protocol': 'freedom',
-        'settings': <String, dynamic>{},
+        'settings': <String, dynamic>{'domainStrategy': 'AsIs'},
       });
     }
     root['outbounds'] = outbounds;
@@ -87,7 +93,7 @@ class XrayConfigRouter {
     }
 
     root['routing'] = {
-      'domainStrategy': 'IPIfNonMatch',
+      'domainStrategy': 'AsIs',
       'domainMatcher': 'hybrid',
       'rules': rules,
     };
