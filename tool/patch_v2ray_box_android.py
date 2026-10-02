@@ -540,7 +540,7 @@ helpers = '''        private fun inferRoutingModeFromXrayConfig(configJson: Stri
                     }
                 }
             }.getOrElse {
-                Log.w(TAG, "Unable to infer Xray routing mode: \${it.message}")
+                Log.w(TAG, "Unable to infer Xray routing mode: ${it.message}")
                 "GLOBAL"
             }
         }
@@ -563,7 +563,7 @@ helpers = '''        private fun inferRoutingModeFromXrayConfig(configJson: Stri
         private fun dnsServerForRoutingMode(context: Context, routingMode: String): String? {
             if (routingMode == "GLOBAL") return XRAY_DNS_SERVER
             val systemDns = underlyingDnsServer(context)
-            Log.d(TAG, "Using underlying DNS for $routingMode: \${systemDns ?: "system/default"}")
+            Log.d(TAG, "Using underlying DNS for $routingMode: ${systemDns ?: "system/default"}")
             return systemDns
         }
 
@@ -604,7 +604,7 @@ old_xray_dns = '''            XrayBridge.configureSocketProtection(
 '''
 new_xray_dns = '''            val routingMode = inferRoutingModeFromXrayConfig(content)
             val dnsServer = dnsServerForRoutingMode(service, routingMode)
-            emitServiceLog("Xray routing=$routingMode dns=\${dnsServer ?: "system/default"}", force = true)
+            emitServiceLog("Xray routing=$routingMode dns=${dnsServer ?: "system/default"}", force = true)
             XrayBridge.configureSocketProtection(
                     protectFd = { fd -> platformInterface.autoDetectInterfaceControl(fd) },
                     dnsServer = dnsServer
@@ -623,7 +623,7 @@ old_bridge_dns = '''                XrayBridge.configureSocketProtection(
 new_bridge_dns = '''                val bridgeRoutingMode = inferRoutingModeFromXrayConfig(bridgeContent)
                 val bridgeDnsServer = dnsServerForRoutingMode(service, bridgeRoutingMode)
                 emitServiceLog(
-                    "TUN bridge routing=$bridgeRoutingMode dns=\${bridgeDnsServer ?: "system/default"}",
+                    "TUN bridge routing=$bridgeRoutingMode dns=${bridgeDnsServer ?: "system/default"}",
                     force = true
                 )
                 XrayBridge.configureSocketProtection(
@@ -642,16 +642,16 @@ xp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/xray/
 xs = xp.read_text(encoding="utf-8")
 old_dns_hook = '''        if (!dnsServer.isNullOrBlank()) {
             runCatching { LibXray.initDns(controller, dnsServer) }
-                .onFailure { Log.w(TAG, "initDns failed: \${it.message}") }
+                .onFailure { Log.w(TAG, "initDns failed: ${it.message}") }
         }
 '''
 new_dns_hook = '''        // DNS override is process-global inside libXray. Always clear the
         // previous mode's resolver before optionally applying a new one.
         runCatching { LibXray.resetDns() }
-            .onFailure { Log.w(TAG, "resetDns before reconfigure failed: \${it.message}") }
+            .onFailure { Log.w(TAG, "resetDns before reconfigure failed: ${it.message}") }
         if (!dnsServer.isNullOrBlank()) {
             runCatching { LibXray.initDns(controller, dnsServer) }
-                .onFailure { Log.w(TAG, "initDns failed: \${it.message}") }
+                .onFailure { Log.w(TAG, "initDns failed: ${it.message}") }
         }
 '''
 if old_dns_hook not in xs:
