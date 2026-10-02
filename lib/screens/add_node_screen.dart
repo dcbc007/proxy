@@ -282,7 +282,7 @@ class _AddNodeScreenState extends State<AddNodeScreen> with SingleTickerProvider
           ],
           onChanged: (v) => setState(() => preProxyNodeId = v ?? ''),
           decoration: const InputDecoration(
-            helperText: '启用后：本节点 → 前置节点 → Internet',
+            helperText: '实际链路：前置节点 → 本节点 → Internet',
           ),
         ),
 
