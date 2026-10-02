@@ -128,9 +128,16 @@ void main() {
 
     final smart = jsonDecode(XrayConfigRouter.apply(base, '智能模式'))
         as Map<String, dynamic>;
-    final smartRules = ((smart['routing'] as Map)['rules'] as List);
+    final smartRouting = smart['routing'] as Map;
+    final smartRules = smartRouting['rules'] as List;
+    expect(smartRouting['domainStrategy'], 'AsIs');
     expect(smartRules.length, 4);
     expect((smartRules.last as Map)['outboundTag'], 'proxy');
+    final smartOutbounds = smart['outbounds'] as List;
+    final directOut = smartOutbounds.cast<Map>().firstWhere(
+      (o) => o['tag'] == 'direct',
+    );
+    expect((directOut['settings'] as Map)['domainStrategy'], 'AsIs');
 
     final global = jsonDecode(XrayConfigRouter.apply(base, '全局模式'))
         as Map<String, dynamic>;
