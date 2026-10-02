@@ -73,6 +73,11 @@ jobs:
           grep -q 'geosite:cn' "$BOX_SERVICE"
           grep -q 'geoip:cn' "$BOX_SERVICE"
           grep -q 'Xray TUN bridge routing mode=' "$BOX_SERVICE"
+          grep -q 'underlyingDnsServer' "$BOX_SERVICE"
+          grep -q 'dnsServerForRoutingMode' "$BOX_SERVICE"
+          grep -q '"domainStrategy" to "AsIs"' "$BOX_SERVICE"
+          grep -q 'routeOnly" to true' "$BOX_SERVICE"
+          grep -q 'resetDns before reconfigure' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/xray/XrayBridge.kt
 
       - name: Fetch bundled Geo databases
         shell: bash
@@ -171,15 +176,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.1.5-arm64.apk
-          sha256sum dist/AurumProxy-1.1.5-arm64.apk > dist/AurumProxy-1.1.5-arm64.apk.sha256
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.1.6-arm64.apk
+          sha256sum dist/AurumProxy-1.1.6-arm64.apk > dist/AurumProxy-1.1.6-arm64.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AurumProxy-1.1.5-arm64
+          name: AurumProxy-1.1.6-arm64
           path: |
-            dist/AurumProxy-1.1.5-arm64.apk
-            dist/AurumProxy-1.1.5-arm64.apk.sha256
+            dist/AurumProxy-1.1.6-arm64.apk
+            dist/AurumProxy-1.1.6-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
