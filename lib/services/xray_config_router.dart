@@ -76,7 +76,7 @@ class XrayConfigRouter {
           },
           {
             'type': 'field',
-            'domain': ['geosite:cn'],
+            'domain': ['geosite:cn', 'domain:cn'],
             'outboundTag': 'direct',
           },
           {
@@ -94,7 +94,7 @@ class XrayConfigRouter {
     }
 
     root['routing'] = {
-      'domainStrategy': 'AsIs',
+      'domainStrategy': mode == '智能模式' ? 'IPIfNonMatch' : 'AsIs',
       'domainMatcher': 'hybrid',
       'rules': rules,
     };
