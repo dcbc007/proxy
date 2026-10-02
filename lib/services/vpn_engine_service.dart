@@ -30,10 +30,15 @@ class VpnEngineService {
   Stream<Map<String, dynamic>> watchLogs() => box.watchLogs();
   Stream<Map<String, dynamic>> watchAlerts() => box.watchAlerts();
 
-  Future<bool> connect(ProxyNode node, {String mode = '智能模式'}) async {
+  Future<bool> connect(
+    ProxyNode node, {
+    String mode = '智能模式',
+    ProxyNode? preProxy,
+  }) async {
     if (!await ensureVpnPermission()) return false;
 
-    final useSingBox =
+    final useChain = preProxy != null;
+    final useSingBox = useChain ||
         node.protocol == ProxyProtocol.snell ||
         node.protocol == ProxyProtocol.hysteria2;
     await box.setCoreEngine(useSingBox ? 'singbox' : 'xray');
@@ -41,6 +46,18 @@ class VpnEngineService {
 
     if (useSingBox) {
       final geoDir = await _geo.filesDir;
+
+      if (useChain) {
+        final json = await _buildSingBoxChain(
+          node,
+          preProxy,
+          mode: mode,
+          geoDir: geoDir,
+        );
+        return box
+            .connectWithJson(json, name: node.name)
+            .timeout(const Duration(seconds: 15), onTimeout: () => false);
+      }
 
       if (node.protocol == ProxyProtocol.snell) {
         final json = SingBoxConfigBuilder.fromNode(
@@ -119,8 +136,12 @@ class VpnEngineService {
     }
   }
 
-  Future<int> ping(ProxyNode node, {bool allowTunnelFallback = false}) async {
-    final singbox =
+  Future<int> ping(
+    ProxyNode node, {
+    bool allowTunnelFallback = false,
+    ProxyNode? preProxy,
+  }) async {
+    final singbox = preProxy != null ||
         node.protocol == ProxyProtocol.snell ||
         node.protocol == ProxyProtocol.hysteria2;
     if (!singbox) {
@@ -129,9 +150,12 @@ class VpnEngineService {
           .timeout(const Duration(seconds: 9), onTimeout: () => -1);
     }
     if (!Platform.isAndroid) return -1;
-    final raw = node.protocol == ProxyProtocol.snell
-        ? SingBoxConfigBuilder.fromNode(node, mode: '全局模式')
-        : await box.generateConfig(node.connectionLink);
+    await box.setCoreEngine('singbox');
+    final raw = preProxy != null
+        ? await _buildSingBoxChain(node, preProxy, mode: '全局模式')
+        : (node.protocol == ProxyProtocol.snell
+            ? SingBoxConfigBuilder.fromNode(node, mode: '全局模式')
+            : await box.generateConfig(node.connectionLink));
     if (raw.trim().isEmpty) return -1;
     final config = SingBoxConfigRouter.apply(raw, mode: '全局模式');
     final decoded = jsonDecode(config) as Map<String, dynamic>;
@@ -145,6 +169,75 @@ class VpnEngineService {
             })
             .timeout(const Duration(seconds: 13), onTimeout: () => -1) ??
         -1;
+  }
+
+  Future<String> _rawSingBoxForNode(ProxyNode node) async {
+    if (node.protocol == ProxyProtocol.snell) {
+      return SingBoxConfigBuilder.fromNode(node, mode: '全局模式');
+    }
+    final raw = await box.generateConfig(node.connectionLink);
+    if (raw.trim().isEmpty) {
+      throw StateError('无法生成 ${node.name} 的 sing-box 配置');
+    }
+    return raw;
+  }
+
+  Map<String, dynamic> _firstProxyOutbound(String raw, String tag) {
+    final root = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    final list = (root['outbounds'] as List?) ?? const [];
+    for (final item in list) {
+      if (item is! Map) continue;
+      final outbound = Map<String, dynamic>.from(item);
+      final type = outbound['type']?.toString().toLowerCase() ?? '';
+      if (type == 'direct' ||
+          type == 'block' ||
+          type == 'dns' ||
+          type == 'selector' ||
+          type == 'urltest') {
+        continue;
+      }
+      outbound['tag'] = tag;
+      outbound.remove('domain_resolver');
+      outbound.remove('detour');
+      return outbound;
+    }
+    throw StateError('未找到可用代理出站');
+  }
+
+  Future<String> _buildSingBoxChain(
+    ProxyNode node,
+    ProxyNode preProxy, {
+    required String mode,
+    String geoDir = '',
+  }) async {
+    final primaryRaw = await _rawSingBoxForNode(node);
+    final preRaw = await _rawSingBoxForNode(preProxy);
+    final primary = _firstProxyOutbound(primaryRaw, 'proxy');
+    final pre = _firstProxyOutbound(preRaw, 'preproxy');
+    primary['detour'] = 'preproxy';
+
+    final root = <String, dynamic>{
+      'log': {'level': 'warn'},
+      'inbounds': [
+        {
+          'type': 'mixed',
+          'tag': 'mixed-in',
+          'listen': '127.0.0.1',
+          'listen_port': 10808,
+        },
+      ],
+      'outbounds': [
+        primary,
+        pre,
+        {'type': 'direct', 'tag': 'direct'},
+      ],
+      'route': {'final': 'proxy'},
+    };
+    return SingBoxConfigRouter.apply(
+      jsonEncode(root),
+      mode: mode,
+      geoDir: geoDir,
+    );
   }
 
   Future<void> setRoutingMode(String mode) async {
