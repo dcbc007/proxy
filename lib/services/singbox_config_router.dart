@@ -43,6 +43,10 @@ class SingBoxConfigRouter {
       if (mode == '智能模式')
         'rules': [
           {
+            'domain_suffix': ['.cn'],
+            'server': 'dns-direct',
+          },
+          {
             'rule_set': ['geosite-cn'],
             'server': 'dns-direct',
           },
@@ -67,6 +71,11 @@ class SingBoxConfigRouter {
         route['final'] = proxy;
         route['rules'] = [
           {'ip_is_private': true, 'action': 'route', 'outbound': 'direct'},
+          {
+            'domain_suffix': ['.cn'],
+            'action': 'route',
+            'outbound': 'direct',
+          },
           {
             'rule_set': ['geosite-cn', 'geoip-cn'],
             'action': 'route',
