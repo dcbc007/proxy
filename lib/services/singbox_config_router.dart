@@ -45,7 +45,6 @@ class SingBoxConfigRouter {
           'server': '223.5.5.5',
           'server_port': 443,
           'path': '/dns-query',
-          'detour': 'direct',
         },
         {
           'type': 'https',
@@ -196,10 +195,7 @@ class SingBoxConfigRouter {
 
     root['route'] = route;
     root['experimental'] = {
-      'cache_file': {
-        'enabled': true,
-        'store_rdrc': true,
-      },
+      'cache_file': {'enabled': true},
       'clash_api': {'external_controller': '127.0.0.1:9090'},
     };
     return jsonEncode(root);
