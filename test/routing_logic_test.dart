@@ -40,7 +40,8 @@ void main() {
     final route = config['route'] as Map<String, dynamic>;
     expect(route['final'], 'proxy');
     final rules = route['rules'] as List;
-    expect(rules.length, 3);
+    expect(rules.length, 4);
+    expect((rules[1] as Map)['domain_suffix'], ['.cn']);
     final ruleSets = route['rule_set'] as List;
     expect(ruleSets.length, 2);
     expect((ruleSets.first as Map)['type'], 'local');
@@ -130,9 +131,13 @@ void main() {
         as Map<String, dynamic>;
     final smartRouting = smart['routing'] as Map;
     final smartRules = smartRouting['rules'] as List;
-    expect(smartRouting['domainStrategy'], 'AsIs');
+    expect(smartRouting['domainStrategy'], 'IPIfNonMatch');
     expect(smartRules.length, 4);
     expect((smartRules.last as Map)['outboundTag'], 'proxy');
+    final cnDomainRule = smartRules.cast<Map>().firstWhere(
+      (r) => r['domain'] != null,
+    );
+    expect((cnDomainRule['domain'] as List).contains('domain:cn'), true);
     final smartOutbounds = smart['outbounds'] as List;
     final directOut = smartOutbounds.cast<Map>().firstWhere(
       (o) => o['tag'] == 'direct',
@@ -141,12 +146,14 @@ void main() {
 
     final global = jsonDecode(XrayConfigRouter.apply(base, '全局模式'))
         as Map<String, dynamic>;
+    expect((global['routing'] as Map)['domainStrategy'], 'AsIs');
     final globalRules = ((global['routing'] as Map)['rules'] as List);
     expect(globalRules.length, 1);
     expect((globalRules.first as Map)['outboundTag'], 'proxy');
 
     final direct = jsonDecode(XrayConfigRouter.apply(base, '直连模式'))
         as Map<String, dynamic>;
+    expect((direct['routing'] as Map)['domainStrategy'], 'AsIs');
     final directRules = ((direct['routing'] as Map)['rules'] as List);
     expect(directRules.length, 1);
     expect((directRules.first as Map)['outboundTag'], 'direct');
