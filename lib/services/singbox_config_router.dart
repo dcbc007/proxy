@@ -44,7 +44,6 @@ class SingBoxConfigRouter {
           'tag': 'dns-cn',
           'server': '223.5.5.5',
           'server_port': 53,
-          'detour': 'direct',
         },
         {
           'type': 'https',
