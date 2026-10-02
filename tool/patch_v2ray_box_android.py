@@ -285,3 +285,228 @@ ss = ss.replace('''                    isRunning = false
                     }''', 1)
 sp.write_text(ss, encoding='utf-8')
 print('Patched Android TUN ownership and runtime stderr diagnostics.')
+
+
+# Make Android's Xray TUN bridge honor the same Smart / Global / Direct mode
+# as the sing-box child process. Previously the bridge always forwarded almost
+# everything to 127.0.0.1:10808, so Smart mode could still behave like Global.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+old_writer = '''                if (Settings.serviceMode == ServiceMode.VPN) {
+                    val bridgeConfig = buildXrayTunBridge(context)
+                    val bridgeFile = File(wDir, "active_config.json")
+                    bridgeFile.writeText(bridgeConfig)
+                    Log.d(TAG, "Xray TUN bridge config written for raw sing-box JSON")
+                }
+'''
+new_writer = '''                if (Settings.serviceMode == ServiceMode.VPN) {
+                    val routingMode = inferRoutingModeFromSingboxConfig(configJson)
+                    val bridgeConfig = buildXrayTunBridge(context, routingMode)
+                    val bridgeFile = File(wDir, "active_config.json")
+                    bridgeFile.writeText(bridgeConfig)
+                    Log.d(TAG, "Xray TUN bridge config written for raw sing-box JSON, routeMode=$routingMode")
+                }
+'''
+if old_writer not in bs:
+    raise SystemExit("raw sing-box bridge writer pattern not found")
+bs = bs.replace(old_writer, new_writer, 1)
+
+old_bridge = '''        private fun buildXrayTunBridge(context: Context): String {
+            val tunSettings = mutableMapOf<String, Any>(
+                "name" to "xray0",
+                "MTU" to 1500,
+                "userLevel" to 8
+            )
+'''
+new_bridge = '''        private fun inferRoutingModeFromSingboxConfig(configJson: String): String {
+            return runCatching {
+                val root = com.google.gson.JsonParser.parseString(configJson).asJsonObject
+                val route = root.getAsJsonObject("route")
+                val finalTag = route?.get("final")?.asString ?: ""
+                if (finalTag == "direct") {
+                    "DIRECT"
+                } else {
+                    val routeText = route?.toString().orEmpty()
+                    if (routeText.contains("\\"geosite-cn\\"") &&
+                        routeText.contains("\\"geoip-cn\\"")) {
+                        "SMART"
+                    } else {
+                        "GLOBAL"
+                    }
+                }
+            }.getOrElse {
+                Log.w(TAG, "Unable to infer sing-box routing mode: ${it.message}")
+                "GLOBAL"
+            }
+        }
+
+        private fun buildXrayTunBridge(
+            context: Context,
+            routingMode: String = "GLOBAL"
+        ): String {
+            val tunSettings = mutableMapOf<String, Any>(
+                "name" to "xray0",
+                "MTU" to 1500,
+                "userLevel" to 8
+            )
+'''
+if old_bridge not in bs:
+    raise SystemExit("buildXrayTunBridge signature pattern not found")
+bs = bs.replace(old_bridge, new_bridge, 1)
+
+old_config = '''            val config = mapOf(
+                "log" to mapOf("loglevel" to if (Settings.debugMode) "debug" else "warning"),
+                "inbounds" to listOf(
+                    mapOf(
+                        "tag" to "tun",
+                        "port" to 0,
+                        "protocol" to "tun",
+                        "settings" to tunSettings,
+                        "sniffing" to mapOf(
+                            "enabled" to true,
+                            "destOverride" to listOf("http", "tls")
+                        )
+                    )
+                ),
+                "outbounds" to listOf(
+                    mapOf(
+                        "tag" to "proxy",
+                        "protocol" to "socks",
+                        "settings" to mapOf(
+                            "servers" to listOf(
+                                mapOf(
+                                    "address" to "127.0.0.1",
+                                    "port" to 10808
+                                )
+                            )
+                        )
+                    ),
+                    mapOf(
+                        "tag" to "direct",
+                        "protocol" to "freedom",
+                        "settings" to mapOf("domainStrategy" to "UseIP")
+                    )
+                ),
+                "routing" to mapOf(
+                    "domainStrategy" to "AsIs",
+                    "rules" to listOf(
+                        mapOf(
+                            "type" to "field",
+                            "outboundTag" to "direct",
+                            "ip" to listOf(
+                                "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+                                "127.0.0.0/8", "fc00::/7", "fe80::/10", "::1/128"
+                            )
+                        )
+                    )
+                ),
+                "policy" to mapOf(
+'''
+new_config = '''            val routingRules = mutableListOf<Map<String, Any>>()
+            when (routingMode) {
+                "DIRECT" -> {
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "network" to "tcp,udp",
+                            "outboundTag" to "direct"
+                        )
+                    )
+                }
+                "SMART" -> {
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "ip" to listOf("geoip:private"),
+                            "outboundTag" to "direct"
+                        )
+                    )
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "port" to "53",
+                            "outboundTag" to "direct"
+                        )
+                    )
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "domain" to listOf("geosite:cn"),
+                            "outboundTag" to "direct"
+                        )
+                    )
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "ip" to listOf("geoip:cn"),
+                            "outboundTag" to "direct"
+                        )
+                    )
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "network" to "tcp,udp",
+                            "outboundTag" to "proxy"
+                        )
+                    )
+                }
+                else -> {
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "network" to "tcp,udp",
+                            "outboundTag" to "proxy"
+                        )
+                    )
+                }
+            }
+
+            Log.d(TAG, "Xray TUN bridge routing mode=$routingMode rules=${routingRules.size}")
+
+            val config = mapOf(
+                "log" to mapOf("loglevel" to if (Settings.debugMode) "debug" else "warning"),
+                "inbounds" to listOf(
+                    mapOf(
+                        "tag" to "tun",
+                        "port" to 0,
+                        "protocol" to "tun",
+                        "settings" to tunSettings,
+                        "sniffing" to mapOf(
+                            "enabled" to true,
+                            "destOverride" to listOf("http", "tls", "quic")
+                        )
+                    )
+                ),
+                "outbounds" to listOf(
+                    mapOf(
+                        "tag" to "proxy",
+                        "protocol" to "socks",
+                        "settings" to mapOf(
+                            "servers" to listOf(
+                                mapOf(
+                                    "address" to "127.0.0.1",
+                                    "port" to 10808
+                                )
+                            )
+                        )
+                    ),
+                    mapOf(
+                        "tag" to "direct",
+                        "protocol" to "freedom",
+                        "settings" to mapOf("domainStrategy" to "UseIP")
+                    )
+                ),
+                "routing" to mapOf(
+                    "domainStrategy" to "IPIfNonMatch",
+                    "domainMatcher" to "hybrid",
+                    "rules" to routingRules
+                ),
+                "policy" to mapOf(
+'''
+if old_config not in bs:
+    raise SystemExit("Xray bridge config routing block not found")
+bs = bs.replace(old_config, new_config, 1)
+
+bp.write_text(bs, encoding="utf-8")
+print("Patched Android Xray TUN bridge routing modes.")
