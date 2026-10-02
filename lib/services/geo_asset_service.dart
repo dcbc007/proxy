@@ -44,19 +44,46 @@ class GeoAssetService {
     final target = Directory(dir);
     await target.create(recursive: true);
 
+    // 1.1.9 deliberately refreshes the bundled rule set once. Android keeps
+    // getExternalFilesDir across APK upgrades, so older/corrupt Geo files can
+    // otherwise survive indefinitely and make Smart mode appear ineffective.
+    final bundleMarker = File('$dir/.aurum_geo_bundle_1_1_9');
+    final forceBundledRefresh = !await bundleMarker.exists();
+    var bundledRefreshComplete = true;
+
     for (final name in _sources.keys) {
       final file = File('$dir/$name');
       final minimum = _minimumBytes[name] ?? 1024;
-      if (await file.exists() && await file.length() >= minimum) continue;
+      final validExisting =
+          await file.exists() && await file.length() >= minimum;
+      if (!forceBundledRefresh && validExisting) continue;
       try {
         final data = await rootBundle.load('assets/geo/$name');
-        await file.writeAsBytes(
-          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
-          flush: true,
+        final bytes = data.buffer.asUint8List(
+          data.offsetInBytes,
+          data.lengthInBytes,
         );
+        if (bytes.length < minimum) {
+          bundledRefreshComplete = false;
+          continue;
+        }
+        final temp = File('$dir/$name.bundle');
+        await temp.writeAsBytes(bytes, flush: true);
+        if (await file.exists()) await file.delete();
+        await temp.rename(file.path);
       } catch (_) {
+        bundledRefreshComplete = false;
         // Settings can download a fresh copy when bundled assets are absent.
       }
+    }
+
+    if (forceBundledRefresh &&
+        bundledRefreshComplete &&
+        await hasSmartRuleAssets()) {
+      await bundleMarker.writeAsString(
+        'AurumProxy 1.1.9 bundled Geo rules',
+        flush: true,
+      );
     }
     return dir;
   }
