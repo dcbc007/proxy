@@ -41,7 +41,7 @@ void main() {
     expect(route['final'], 'proxy');
     final rules = route['rules'] as List;
     expect(rules.length, 4);
-    expect((rules[1] as Map)['domain_suffix'], ['.cn']);
+    expect((rules[2] as Map)['domain_suffix'], ['.cn']);
     final ruleSets = route['rule_set'] as List;
     expect(ruleSets.length, 2);
     expect((ruleSets.first as Map)['type'], 'local');
