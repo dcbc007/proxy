@@ -971,3 +971,126 @@ bs = bs.replace(
 )
 bp.write_text(bs, encoding="utf-8")
 print("Removed routing decisions from Android TUN bridge.")
+
+# 1.2.2 high-throughput Android data path:
+# replace the Xray TUN->SOCKS bridge with hev-socks5-tunnel JNI, matching the
+# mature v2rayNG approach. sing-box remains the only routing/proxy core.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+bs = bs.replace(
+    '''            if (coreController != null || SingboxProcess.isRunning || SingboxProcess.isProcessAlive) {''',
+    '''            if (coreController != null || HevTunBridge.isRunning() || SingboxProcess.isRunning || SingboxProcess.isProcessAlive) {''',
+    1,
+)
+
+start = bs.find('            val tunFd = pfd.fd\n            Log.d(TAG, "TUN created with fd=$tunFd, starting Xray TUN bridge...")')
+end = bs.find('        }\n        return true', start)
+if start < 0 or end < 0:
+    raise SystemExit("1.2.2 sing-box VPN bridge block not found")
+hev_start = '''            val tunFd = pfd.fd
+            Log.d(TAG, "TUN created with fd=$tunFd, starting HEV tun2socks...")
+            emitServiceLog("TUN created with fd=$tunFd for HEV tun2socks")
+
+            val hevStarted = runCatching {
+                HevTunBridge.start(service, pfd)
+            }.getOrElse {
+                Log.e(TAG, "Failed to start HEV tun2socks", it)
+                false
+            }
+            if (!hevStarted) {
+                SingboxProcess.stop()
+                platformInterface.closeTun()
+                emitServiceLog("HEV tun2socks failed to start", force = true)
+                stopAndAlert(Alert.StartService, "HEV tun2socks failed to start")
+                return false
+            }
+            Log.d(TAG, "HEV tun2socks started for sing-box VPN mode")
+            emitServiceLog("HEV tun2socks -> sing-box active", force = true)
+'''
+bs = bs[:start] + hev_start + bs[end:]
+
+stop_marker = '''        if (SingboxProcess.isRunning || SingboxProcess.isProcessAlive) {'''
+hev_stop = '''        if (HevTunBridge.isRunning()) {
+            runCatching { HevTunBridge.stop() }
+                .onFailure { Log.w(TAG, "Error stopping HEV tun2socks", it) }
+        }
+
+        if (SingboxProcess.isRunning || SingboxProcess.isProcessAlive) {'''
+if stop_marker not in bs:
+    raise SystemExit("1.2.2 stop marker not found")
+bs = bs.replace(stop_marker, hev_stop, 1)
+
+bp.write_text(bs, encoding="utf-8")
+
+# Match mature Android TUN clients: large virtual MTU improves userspace
+# tun2socks throughput. This does not change the physical interface MTU.
+vpns = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/VPNService.kt")
+vns = vpns.read_text(encoding="utf-8")
+vns = vns.replace('private const val TUN_MTU = 1500', 'private const val TUN_MTU = 9000', 1)
+vpns.write_text(vns, encoding="utf-8")
+
+hev_file = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/HevTunBridge.kt")
+hev_file.write_text(r'''package com.example.v2ray_box.bg
+
+import android.content.Context
+import android.os.ParcelFileDescriptor
+import android.util.Log
+import java.io.File
+
+object HevTunBridge {
+    private const val TAG = "V2Ray/HevTunBridge"
+    private const val MTU = 9000
+
+    @JvmStatic
+    private external fun TProxyStartService(configPath: String, fd: Int): Boolean
+
+    @JvmStatic
+    private external fun TProxyStopService(): Boolean
+
+    @JvmStatic
+    private external fun TProxyIsRunning(): Boolean
+
+    init {
+        System.loadLibrary("hev-socks5-tunnel")
+    }
+
+    fun start(context: Context, pfd: ParcelFileDescriptor): Boolean {
+        if (isRunning()) stop()
+        val config = buildString {
+            appendLine("tunnel:")
+            appendLine("  mtu: $MTU")
+            appendLine("  ipv4: 26.26.26.1")
+            appendLine("  ipv6: 'da26:2626::1'")
+            appendLine("socks5:")
+            appendLine("  port: 10808")
+            appendLine("  address: 127.0.0.1")
+            appendLine("  udp: 'udp'")
+            appendLine("misc:")
+            appendLine("  tcp-read-write-timeout: 300000")
+            appendLine("  udp-read-write-timeout: 60000")
+            appendLine("  log-level: error")
+        }
+        val file = File(context.filesDir, "hev-socks5-tunnel.yaml")
+        file.writeText(config)
+        Log.d(TAG, "Starting HEV tun2socks fd=${pfd.fd} mtu=$MTU")
+        if (!TProxyStartService(file.absolutePath, pfd.fd)) return false
+        val deadline = System.currentTimeMillis() + 2500
+        while (System.currentTimeMillis() < deadline) {
+            if (TProxyIsRunning()) return true
+            Thread.sleep(40)
+        }
+        return TProxyIsRunning()
+    }
+
+    fun stop() {
+        if (runCatching { TProxyIsRunning() }.getOrDefault(false)) {
+            runCatching { TProxyStopService() }
+        }
+    }
+
+    fun isRunning(): Boolean = runCatching { TProxyIsRunning() }.getOrDefault(false)
+}
+''', encoding="utf-8")
+
+print("Patched sing-box VPN data path to HEV tun2socks at MTU 9000.")
