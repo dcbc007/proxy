@@ -8,7 +8,6 @@ import 'package:v2ray_box/v2ray_box.dart';
 import '../models/proxy_node.dart';
 import 'singbox_config_builder.dart';
 import 'geo_asset_service.dart';
-import 'xray_config_router.dart';
 import 'singbox_config_router.dart';
 import 'singbox_chain_config.dart';
 
@@ -22,7 +21,7 @@ class VpnEngineService {
 
   Future<void> initialize() async {
     await box.initialize(notificationStopButtonText: '断开');
-    await box.setCoreEngine('xray');
+    await box.setCoreEngine('singbox');
     await box.setServiceMode(VpnMode.vpn);
   }
 
@@ -44,6 +43,8 @@ class VpnEngineService {
         throw StateError('智能分流 Geo 数据缺失或不完整，请在设置中更新 GeoIP / GeoSite');
       }
     }
+
+    final useChain = preProxy != null;
 
     // 1.2.0: one routing engine only. Android's Xray TUN layer is a pure
     // transport bridge; sing-box owns Smart/Global/Direct, DNS and Geo rules.
