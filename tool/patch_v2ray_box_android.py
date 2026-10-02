@@ -660,3 +660,67 @@ xs = xs.replace(old_dns_hook, new_dns_hook, 1)
 xp.write_text(xs, encoding="utf-8")
 
 print("Patched Smart/Direct DNS path and removed duplicate route DNS resolution.")
+
+
+
+# Fix the actual Android VPN DNS advertised to apps.
+# Upstream hard-codes 1.1.1.1 and 8.8.8.8 into VpnService.Builder, so even
+# Smart/Direct traffic first depends on public DNS that can be slow or blocked.
+# Capture DNS from the underlying Wi-Fi/mobile network before establishing the
+# VPN. Only fall back to China-reachable public resolvers if Android exposes none.
+vpns = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/VPNService.kt")
+vns = vpns.read_text(encoding="utf-8")
+
+old_builder = '''        val builder = Builder()
+            .setSession("V2Ray Box")
+            .setMtu(TUN_MTU)
+            .addAddress(TUN_ADDR4, 30)
+            .addAddress(TUN_ADDR6, 126)
+            .addRoute("0.0.0.0", 0)
+            .addRoute("::", 0)
+            .addDnsServer("1.1.1.1")
+            .addDnsServer("8.8.8.8")
+'''
+
+new_builder = '''        val underlyingNetwork =
+            DefaultNetworkMonitor.defaultNetwork ?: connectivity.activeNetwork
+        val underlyingDns = runCatching {
+            underlyingNetwork
+                ?.let { connectivity.getLinkProperties(it) }
+                ?.dnsServers
+                ?.filter { !it.isLoopbackAddress && !it.isAnyLocalAddress }
+                ?.distinct()
+                .orEmpty()
+        }.getOrDefault(emptyList())
+
+        val selectedDns = if (underlyingDns.isNotEmpty()) {
+            underlyingDns
+        } else {
+            listOf(
+                java.net.InetAddress.getByName("223.5.5.5"),
+                java.net.InetAddress.getByName("119.29.29.29")
+            )
+        }
+
+        Log.d(
+            TAG,
+            "VPN DNS from underlying network: " +
+                selectedDns.joinToString(",") { it.hostAddress ?: it.toString() }
+        )
+
+        val builder = Builder()
+            .setSession("V2Ray Box")
+            .setMtu(TUN_MTU)
+            .addAddress(TUN_ADDR4, 30)
+            .addAddress(TUN_ADDR6, 126)
+            .addRoute("0.0.0.0", 0)
+            .addRoute("::", 0)
+
+        selectedDns.forEach { builder.addDnsServer(it) }
+'''
+if old_builder not in vns:
+    raise SystemExit("VPNService hard-coded DNS builder pattern not found")
+vns = vns.replace(old_builder, new_builder, 1)
+
+vpns.write_text(vns, encoding="utf-8")
+print("Patched Android VPN DNS to underlying network resolvers.")
