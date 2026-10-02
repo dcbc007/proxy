@@ -843,3 +843,46 @@ vns = vns.replace(old_selected, new_selected, 1)
 vpns.write_text(vns, encoding="utf-8")
 
 print("Patched Smart/Global DNS to proxy path; Direct keeps system DNS.")
+
+# 1.1.9 Smart route correctness:
+# Restore DNS->IP fallback only for Smart mode so geoip:cn can match domains
+# that are absent from geosite:cn. Direct/Global remain AsIs to avoid the
+# previous latency regression. Add domain:cn as a deterministic fallback.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+old_domain_rule = '''                            "domain" to listOf("geosite:cn"),'''
+new_domain_rule = '''                            "domain" to listOf("geosite:cn", "domain:cn"),'''
+if old_domain_rule not in bs:
+    raise SystemExit("SMART geosite domain rule pattern not found")
+bs = bs.replace(old_domain_rule, new_domain_rule, 1)
+
+config_anchor = '''            val config = mapOf(
+'''
+strategy_decl = '''            val routeDomainStrategy =
+                if (routingMode == "SMART") "IPIfNonMatch" else "AsIs"
+
+            val config = mapOf(
+'''
+if config_anchor not in bs:
+    raise SystemExit("bridge config anchor not found")
+bs = bs.replace(config_anchor, strategy_decl, 1)
+
+old_strategy = '''                    "domainStrategy" to "AsIs",
+                    "domainMatcher" to "hybrid",'''
+new_strategy = '''                    "domainStrategy" to routeDomainStrategy,
+                    "domainMatcher" to "hybrid",'''
+if old_strategy not in bs:
+    raise SystemExit("bridge AsIs strategy pattern not found")
+bs = bs.replace(old_strategy, new_strategy, 1)
+
+old_log = '''            Log.d(TAG, "Xray TUN bridge routing mode=$routingMode rules=${routingRules.size}")'''
+new_log = '''            Log.d(
+                TAG,
+                "Xray TUN bridge routing mode=$routingMode domainStrategy=$routeDomainStrategy rules=${routingRules.size}"
+            )'''
+if old_log in bs:
+    bs = bs.replace(old_log, new_log, 1)
+
+bp.write_text(bs, encoding="utf-8")
+print("Patched Smart routing with IPIfNonMatch and domain:cn fallback.")
