@@ -78,6 +78,14 @@ jobs:
           grep -q '"domainStrategy" to "AsIs"' "$BOX_SERVICE"
           grep -q 'routeOnly" to true' "$BOX_SERVICE"
           grep -q 'resetDns before reconfigure' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/xray/XrayBridge.kt
+          VPN_SERVICE="third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/VPNService.kt"
+          grep -q 'VPN DNS from underlying network' "$VPN_SERVICE"
+          grep -q 'DefaultNetworkMonitor.defaultNetwork' "$VPN_SERVICE"
+          grep -q 'connectivity.getLinkProperties' "$VPN_SERVICE"
+          grep -q '223.5.5.5' "$VPN_SERVICE"
+          grep -q '119.29.29.29' "$VPN_SERVICE"
+          ! grep -q '.addDnsServer("1.1.1.1")' "$VPN_SERVICE"
+          ! grep -q '.addDnsServer("8.8.8.8")' "$VPN_SERVICE"
 
       - name: Fetch bundled Geo databases
         shell: bash
@@ -176,15 +184,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.1.6-arm64.apk
-          sha256sum dist/AurumProxy-1.1.6-arm64.apk > dist/AurumProxy-1.1.6-arm64.apk.sha256
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.1.7-arm64.apk
+          sha256sum dist/AurumProxy-1.1.7-arm64.apk > dist/AurumProxy-1.1.7-arm64.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AurumProxy-1.1.6-arm64
+          name: AurumProxy-1.1.7-arm64
           path: |
-            dist/AurumProxy-1.1.6-arm64.apk
-            dist/AurumProxy-1.1.6-arm64.apk.sha256
+            dist/AurumProxy-1.1.7-arm64.apk
+            dist/AurumProxy-1.1.7-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
