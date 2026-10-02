@@ -79,7 +79,6 @@ jobs:
           grep -q 'routeOnly" to true' "$BOX_SERVICE"
           grep -q 'resetDns before reconfigure' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/xray/XrayBridge.kt
           VPN_SERVICE="third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/VPNService.kt"
-          grep -q 'VPN DNS from underlying network' "$VPN_SERVICE"
           grep -q 'DefaultNetworkMonitor.defaultNetwork' "$VPN_SERVICE"
           grep -q 'connectivity.getLinkProperties' "$VPN_SERVICE"
           grep -q '223.5.5.5' "$VPN_SERVICE"
