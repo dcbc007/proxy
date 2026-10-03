@@ -3,8 +3,14 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
 class PowerButton extends StatefulWidget {
-  const PowerButton({super.key, required this.connected, required this.onTap});
+  const PowerButton({
+    super.key,
+    required this.connected,
+    required this.connecting,
+    required this.onTap,
+  });
   final bool connected;
+  final bool connecting;
   final VoidCallback onTap;
 
   @override
@@ -23,6 +29,7 @@ class _PowerButtonState extends State<PowerButton> with SingleTickerProviderStat
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: widget.onTap,
       child: AnimatedBuilder(
         animation: _c,
@@ -46,9 +53,31 @@ class _PowerButtonState extends State<PowerButton> with SingleTickerProviderStat
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.power_settings_new_rounded, color: AppColors.goldBright, size: 48),
+                    if (widget.connecting)
+                      const SizedBox(
+                        width: 38,
+                        height: 38,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.8,
+                          color: AppColors.goldBright,
+                        ),
+                      )
+                    else
+                      const Icon(
+                        Icons.power_settings_new_rounded,
+                        color: AppColors.goldBright,
+                        size: 48,
+                      ),
                     const SizedBox(height: 7),
-                    Text(widget.connected ? '点击断开' : '点击连接', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                    Text(
+                      widget.connecting
+                          ? (widget.connected ? '正在断开' : '正在连接')
+                          : (widget.connected ? '点击断开' : '点击连接'),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ],
                 ),
               ),
