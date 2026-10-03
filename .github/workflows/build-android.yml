@@ -2,7 +2,7 @@ name: Build AurumProxy Android APK
 
 on:
   push:
-    branches: [ main, fix/smart-root-1.2.3 ]
+    branches: [ main, fix/hev-jni-crash-1.2.4 ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -94,9 +94,13 @@ jobs:
           grep -q 'HevTunnelBridge.stop()' "$BOX_SERVICE"
           grep -q 'HEV tun2socks -> sing-box active' "$BOX_SERVICE"
           grep -q 'System.loadLibrary("hev-socks5-tunnel")' "$HEV_BRIDGE"
+          grep -q 'TProxyGetStats(): LongArray' "$HEV_BRIDGE"
+          grep -q 'libraryLoaded = true' "$HEV_BRIDGE"
+          grep -q 'HEV native load failed' "$HEV_BRIDGE"
           grep -q 'port: 10808' "$HEV_BRIDGE"
           grep -q "udp: 'udp'" "$HEV_BRIDGE"
           test -s third_party/v2box/android/src/main/jniLibs/arm64-v8a/libhev-socks5-tunnel.so
+          grep -q '"TProxyGetStats"' third_party/hev-socks5-tunnel/src/hev-jni.c
           python3 - <<'PY'
           from pathlib import Path
           box = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt").read_text()
@@ -224,15 +228,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.2.3-arm64.apk
-          sha256sum dist/AurumProxy-1.2.3-arm64.apk > dist/AurumProxy-1.2.3-arm64.apk.sha256
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.2.4-arm64.apk
+          sha256sum dist/AurumProxy-1.2.4-arm64.apk > dist/AurumProxy-1.2.4-arm64.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AurumProxy-1.2.3-arm64
+          name: AurumProxy-1.2.4-arm64
           path: |
-            dist/AurumProxy-1.2.3-arm64.apk
-            dist/AurumProxy-1.2.3-arm64.apk.sha256
+            dist/AurumProxy-1.2.4-arm64.apk
+            dist/AurumProxy-1.2.4-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
