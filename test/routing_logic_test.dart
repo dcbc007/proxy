@@ -43,18 +43,11 @@ void main() {
     expect(rules.length, 6);
     expect((rules.first as Map)['action'], 'sniff');
     expect((rules[3] as Map)['domain_suffix'], ['.cn']);
-    expect((rules[4] as Map)['rule_set'], ['geosite-geolocation-cn']);
+    expect((rules[4] as Map)['rule_set'], ['geosite-cn']);
 
     final cnIpRule = rules[5] as Map;
-    expect(cnIpRule['type'], 'logical');
-    expect(cnIpRule['mode'], 'and');
-    final cnIpSubRules = cnIpRule['rules'] as List;
-    expect((cnIpSubRules.first as Map)['rule_set'], ['geoip-cn']);
-    expect(
-      (cnIpSubRules[1] as Map)['rule_set'],
-      ['geosite-geolocation-!cn'],
-    );
-    expect((cnIpSubRules[1] as Map)['invert'], true);
+    expect(cnIpRule['rule_set'], ['geoip-cn']);
+    expect(cnIpRule['outbound'], 'direct');
 
     final ruleSets = route['rule_set'] as List;
     expect(ruleSets.length, 3);
@@ -63,7 +56,7 @@ void main() {
       ruleSets.map((e) => (e as Map)['tag']).toSet(),
       {
         'geoip-cn',
-        'geosite-geolocation-cn',
+        'geosite-cn',
         'geosite-geolocation-!cn',
       },
     );
@@ -71,11 +64,12 @@ void main() {
     final dns = config['dns'] as Map<String, dynamic>;
     final dnsRules = dns['rules'] as List;
     expect((dnsRules[0] as Map)['server'], 'dns-cn');
-    expect((dnsRules[1] as Map)['rule_set'], ['geosite-geolocation-cn']);
+    expect((dnsRules[1] as Map)['rule_set'], ['geosite-cn']);
     expect((dnsRules[2] as Map)['rule_set'], ['geosite-geolocation-!cn']);
-    expect((dnsRules[3] as Map)['action'], 'evaluate');
-    expect((dnsRules[4] as Map)['match_response'], 'cn-probe');
-    expect((dnsRules.last as Map)['server'], 'dns-remote');
+    expect(dnsRules.length, 3);
+    expect(dns['final'], 'dns-remote');
+    final cnDns = (dns['servers'] as List).first as Map;
+    expect((cnDns['tls'] as Map)['server_name'], 'dns.alidns.com');
   });
 
   test('global and direct sing-box modes change final outbound', () {
