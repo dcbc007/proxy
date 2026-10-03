@@ -10,7 +10,7 @@ class GeoAssetService {
     'geoip.dat': 100 * 1024,
     'geosite.dat': 100 * 1024,
     'geoip-cn.srs': 4 * 1024,
-    'geosite-geolocation-cn.srs': 4 * 1024,
+    'geosite-cn.srs': 4 * 1024,
     'geosite-geolocation-!cn.srs': 4 * 1024,
   };
 
@@ -29,9 +29,9 @@ class GeoAssetService {
       'https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs',
       'https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs',
     ],
-    'geosite-geolocation-cn.srs': [
-      'https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-cn.srs',
-      'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs',
+    'geosite-cn.srs': [
+      'https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs',
+      'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs',
     ],
     'geosite-geolocation-!cn.srs': [
       'https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-!cn.srs',
@@ -52,7 +52,7 @@ class GeoAssetService {
     // 1.2.1 deliberately refreshes the bundled rule set once. Android keeps
     // getExternalFilesDir across APK upgrades, so older/corrupt Geo files can
     // otherwise survive indefinitely and make Smart mode appear ineffective.
-    final bundleMarker = File('$dir/.aurum_geo_bundle_1_2_1');
+    final bundleMarker = File('$dir/.aurum_geo_bundle_1_2_2');
     final forceBundledRefresh = !await bundleMarker.exists();
     var bundledRefreshComplete = true;
 
@@ -86,7 +86,7 @@ class GeoAssetService {
         bundledRefreshComplete &&
         await hasSmartRuleAssets()) {
       await bundleMarker.writeAsString(
-        'AurumProxy 1.2.1 bundled Geo rules',
+        'AurumProxy 1.2.2 bundled Geo rules',
         flush: true,
       );
     }
@@ -146,7 +146,7 @@ class GeoAssetService {
     for (var redirects = 0; redirects < 8; redirects++) {
       final request = await client.getUrl(current);
       request.followRedirects = false;
-      request.headers.set(HttpHeaders.userAgentHeader, 'AurumProxy/1.2.1');
+      request.headers.set(HttpHeaders.userAgentHeader, 'AurumProxy/1.2.2');
       request.headers.set(HttpHeaders.acceptHeader, 'application/octet-stream');
       final response = await request.close();
 
