@@ -57,6 +57,13 @@ void main() {
     expect((directRules.first as Map)['type'], 'logical');
     expect((directRules.first as Map)['action'], 'hijack-dns');
 
+    final smart = routed('智能模式');
+    expect(smart['dns']['final'], 'dns-remote');
+    expect(smart['dns']['servers'][0]['tls']['server_name'], 'dns.alidns.com');
+    expect((smart['dns']['rules'] as List).length, 3);
+    expect((smart['route']['rules'] as List)[4]['rule_set'], ['geosite-cn']);
+    expect((smart['route']['rules'] as List)[5]['rule_set'], ['geoip-cn']);
+
     final global = routed('全局模式');
     expect(global['dns']['final'], 'dns-remote');
     expect(global['dns']['servers'][1]['detour'], 'proxy');
