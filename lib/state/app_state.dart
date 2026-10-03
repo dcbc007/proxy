@@ -23,7 +23,7 @@ class AppState extends ChangeNotifier {
   bool connecting = false;
   bool coreReady = false;
   String coreVersion = '';
-  String appVersion = '1.2.6';
+  String appVersion = '1.3.0';
   String mode = '智能模式';
   String downloadSpeed = '0 B/s';
   String uploadSpeed = '0 B/s';
@@ -603,7 +603,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> runDiagnostics() async {
     _log('========== 路由自检开始 ==========');
-    _log('架构：Android TUN → Xray 纯传输桥 → sing-box');
+    _log('架构：Android TUN → Xray 直连/智能分流 → sing-box 仅代理传输');
     _log('模式：$mode');
     _log('核心状态：${coreReady ? '已就绪' : '未就绪'}${coreVersion.isEmpty ? '' : ' · $coreVersion'}');
     _log('当前连接：${connected ? '已连接' : (connecting ? '连接中' : '未连接')}');
@@ -647,8 +647,8 @@ class AppState extends ChangeNotifier {
     }
 
     if (mode == '智能模式') {
-      _log('Smart DNS：中国 223.5.5.5:53 UDP 直连；国外 1.1.1.1 DoH 经代理');
-      _log('Smart 路由：中国域名/CN IP → direct；其余 → proxy');
+      _log('Smart DNS：系统/国内可达 DNS 由 Xray 直连；国外业务流量由 Xray 转交 sing-box 代理');
+      _log('Smart 路由：Xray 中国域名/CN IP → direct；其余 → sing-box proxy');
     } else if (mode == '全局模式') {
       _log('全局路由：业务流量与国外 DNS → proxy');
     } else {
