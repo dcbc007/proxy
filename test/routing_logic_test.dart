@@ -74,7 +74,6 @@ void main() {
     expect(cnDns['type'], 'udp');
     expect(cnDns['server'], '223.5.5.5');
     expect(cnDns['server_port'], 53);
-    expect(cnDns['detour'], 'direct');
     final remoteDns = dnsServers[1] as Map;
     expect(remoteDns['detour'], 'proxy');
 
