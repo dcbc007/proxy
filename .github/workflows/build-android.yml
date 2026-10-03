@@ -53,7 +53,28 @@ jobs:
         run: |
           mkdir -p third_party
           git clone --depth 1 https://github.com/imanheidary/v2box.git third_party/v2box
+          git -C third_party/v2box checkout bc194f6a2fddee401d1c3b8141fec8d76c8d19f3
           python3 tool/patch_v2ray_box_android.py
+
+      - name: Build Android HEV tun2socks bridge
+        shell: bash
+        run: |
+          rm -rf third_party/hev-socks5-tunnel /tmp/aurum-hev-build
+          git init third_party/hev-socks5-tunnel
+          git -C third_party/hev-socks5-tunnel remote add origin https://github.com/heiher/hev-socks5-tunnel.git
+          git -C third_party/hev-socks5-tunnel fetch --depth 1 origin 2cdc169a248ced7097a7931aea5bf81540dc7759
+          git -C third_party/hev-socks5-tunnel checkout --detach FETCH_HEAD
+          git -C third_party/hev-socks5-tunnel submodule update --init --recursive --depth 1
+
+          mkdir -p /tmp/aurum-hev-build/jni
+          ln -s "$GITHUB_WORKSPACE/third_party/hev-socks5-tunnel" /tmp/aurum-hev-build/jni/hev-socks5-tunnel
+          printf '%s\n' 'include $(call all-subdir-makefiles)' > /tmp/aurum-hev-build/jni/Android.mk
+
+          "$ANDROID_NDK_HOME/ndk-build"             NDK_PROJECT_PATH=/tmp/aurum-hev-build             APP_BUILD_SCRIPT=/tmp/aurum-hev-build/jni/Android.mk             APP_ABI=arm64-v8a             APP_PLATFORM=android-24             NDK_LIBS_OUT=/tmp/aurum-hev-build/libs             NDK_OUT=/tmp/aurum-hev-build/obj             'APP_CFLAGS=-O3 -DPKGNAME=com/example/v2ray_box/bg -DCLSNAME=HevTunnelBridge'             'APP_LDFLAGS=-Wl,--build-id=none -Wl,--hash-style=gnu'
+
+          test -s /tmp/aurum-hev-build/libs/arm64-v8a/libhev-socks5-tunnel.so
+          mkdir -p third_party/v2box/android/src/main/jniLibs/arm64-v8a
+          cp /tmp/aurum-hev-build/libs/arm64-v8a/libhev-socks5-tunnel.so             third_party/v2box/android/src/main/jniLibs/arm64-v8a/libhev-socks5-tunnel.so
 
       - name: Verify activity-independent VPN status patch
         shell: bash
@@ -61,11 +82,32 @@ jobs:
           grep -q 'statusEventSink?.success(mapOf("status" to status.name))' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/V2rayBoxPlugin.kt
           grep -q 'Handler(android.os.Looper.getMainLooper()).post' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/V2rayBoxPlugin.kt
 
-      - name: Verify sing-box/Xray bridge separation patch
+      - name: Verify HEV + sing-box Android architecture
         shell: bash
         run: |
-          grep -q 'Sing-box JSON config written to' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt
-          grep -q 'Xray TUN bridge config written for raw sing-box JSON' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt
+          BOX_SERVICE="third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt"
+          HEV_BRIDGE="third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/HevTunnelBridge.kt"
+          VPN_ENGINE="lib/services/vpn_engine_service.dart"
+          grep -q "setCoreEngine('singbox')" "$VPN_ENGINE"
+          ! grep -q "xray_config_router.dart" "$VPN_ENGINE"
+          grep -q 'HevTunnelBridge.start(service, tunFd)' "$BOX_SERVICE"
+          grep -q 'HevTunnelBridge.stop()' "$BOX_SERVICE"
+          grep -q 'HEV tun2socks -> sing-box active' "$BOX_SERVICE"
+          grep -q 'System.loadLibrary("hev-socks5-tunnel")' "$HEV_BRIDGE"
+          grep -q 'port: 10808' "$HEV_BRIDGE"
+          grep -q "udp: 'udp'" "$HEV_BRIDGE"
+          test -s third_party/v2box/android/src/main/jniLibs/arm64-v8a/libhev-socks5-tunnel.so
+          python3 - <<'PY'
+          from pathlib import Path
+          box = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt").read_text()
+          s = box.index("private suspend fun startSingboxEngine")
+          e = box.index("fun serviceReload()", s)
+          body = box[s:e]
+          assert "HevTunnelBridge.start(service, tunFd)" in body
+          assert "controller.startLoop(bridgeContent, tunFd)" not in body
+          assert "Xray TUN bridge started for sing-box VPN mode" not in body
+          print("Verified Android data path: VpnService TUN -> HEV -> sing-box.")
+          PY
 
       - name: Fetch bundled Geo databases
         shell: bash
@@ -79,10 +121,13 @@ jobs:
             https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs
           curl -fL --retry 3 -o assets/geo/geosite-geolocation-cn.srs \
             https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs
+          curl -fL --retry 3 -o assets/geo/geosite-geolocation-!cn.srs \
+            https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs
           test -s assets/geo/geoip.dat
           test -s assets/geo/geosite.dat
           test -s assets/geo/geoip-cn.srs
           test -s assets/geo/geosite-geolocation-cn.srs
+          test -s assets/geo/geosite-geolocation-!cn.srs
 
       - name: Create Android platform project
         shell: bash
@@ -106,7 +151,20 @@ jobs:
 
       - name: Desktop routing regression test
         shell: bash
-        run: flutter test test/routing_logic_test.dart
+        run: flutter test
+
+      - name: HY2 and real latency integration test
+        shell: bash
+        run: |
+          curl -fL --retry 3 -o /tmp/singbox-linux.tar.gz https://github.com/SagerNet/sing-box/releases/download/v1.14.1/sing-box-1.14.1-linux-amd64.tar.gz
+          tar -xzf /tmp/singbox-linux.tar.gz -C /tmp
+          dart run tool/smoke_chain_config.dart /tmp/aurum-chain.json
+          /tmp/sing-box-1.14.1-linux-amd64/sing-box check -c /tmp/aurum-chain.json
+          dart run tool/smoke_single_core_routes.dart /tmp/aurum-single-core
+          /tmp/sing-box-1.14.1-linux-amd64/sing-box check -c /tmp/aurum-single-core-smart.json
+          /tmp/sing-box-1.14.1-linux-amd64/sing-box check -c /tmp/aurum-single-core-global.json
+          /tmp/sing-box-1.14.1-linux-amd64/sing-box check -c /tmp/aurum-single-core-direct.json
+          python3 tool/smoke_test_singbox.py /tmp/sing-box-1.14.1-linux-amd64/sing-box
 
       - name: Prepare pinned libXray source
         shell: bash
@@ -135,11 +193,22 @@ jobs:
         shell: bash
         run: flutter build apk --release --target-platform android-arm64
 
+      - name: Verify bundled Smart Geo assets
+        shell: bash
+        run: |
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          unzip -l "$APK" | grep -q "assets/flutter_assets/assets/geo/geoip.dat"
+          unzip -l "$APK" | grep -q "assets/flutter_assets/assets/geo/geosite.dat"
+          unzip -l "$APK" | grep -q "assets/flutter_assets/assets/geo/geoip-cn.srs"
+          unzip -l "$APK" | grep -q "assets/flutter_assets/assets/geo/geosite-geolocation-cn.srs"
+          unzip -l "$APK" | grep -q "assets/flutter_assets/assets/geo/geosite-geolocation-!cn.srs"
+
       - name: Verify sing-box executable packaging
         shell: bash
         run: |
           APK="build/app/outputs/flutter-apk/app-release.apk"
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libsingbox.so"
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libhev-socks5-tunnel.so"
           APKANALYZER="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
           "$APKANALYZER" manifest print "$APK" | tee /tmp/manifest.xml
           grep -q 'android:extractNativeLibs="true"' /tmp/manifest.xml
@@ -155,15 +224,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.1.0-arm64.apk
-          sha256sum dist/AurumProxy-1.1.0-arm64.apk > dist/AurumProxy-1.1.0-arm64.apk.sha256
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.2.2-arm64.apk
+          sha256sum dist/AurumProxy-1.2.2-arm64.apk > dist/AurumProxy-1.2.2-arm64.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AurumProxy-1.1.0-arm64
+          name: AurumProxy-1.2.2-arm64
           path: |
-            dist/AurumProxy-1.1.0-arm64.apk
-            dist/AurumProxy-1.1.0-arm64.apk.sha256
+            dist/AurumProxy-1.2.2-arm64.apk
+            dist/AurumProxy-1.2.2-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
