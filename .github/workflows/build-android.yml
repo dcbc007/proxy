@@ -2,7 +2,7 @@ name: Build AurumProxy Android APK
 
 on:
   push:
-    branches: [ main, fix/hev-jni-crash-1.2.4 ]
+    branches: [ main, fix/connect-button-1.2.5 ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -112,6 +112,15 @@ jobs:
           assert "Xray TUN bridge started for sing-box VPN mode" not in body
           print("Verified Android data path: VpnService TUN -> HEV -> sing-box.")
           PY
+
+      - name: Verify Connect button state machine
+        shell: bash
+        run: |
+          grep -q "coreInfo().timeout" lib/state/app_state.dart
+          ! grep -q "connecting = name == 'starting' || name == 'stopping'" lib/state/app_state.dart
+          grep -q "_armConnectionWatchdog" lib/state/app_state.dart
+          grep -q "HitTestBehavior.opaque" lib/widgets/power_button.dart
+          grep -q "connecting: s.connecting" lib/screens/home_screen.dart
 
       - name: Fetch bundled Geo databases
         shell: bash
@@ -228,15 +237,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.2.4-arm64.apk
-          sha256sum dist/AurumProxy-1.2.4-arm64.apk > dist/AurumProxy-1.2.4-arm64.apk.sha256
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.2.5-arm64.apk
+          sha256sum dist/AurumProxy-1.2.5-arm64.apk > dist/AurumProxy-1.2.5-arm64.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AurumProxy-1.2.4-arm64
+          name: AurumProxy-1.2.5-arm64
           path: |
-            dist/AurumProxy-1.2.4-arm64.apk
-            dist/AurumProxy-1.2.4-arm64.apk.sha256
+            dist/AurumProxy-1.2.5-arm64.apk
+            dist/AurumProxy-1.2.5-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
