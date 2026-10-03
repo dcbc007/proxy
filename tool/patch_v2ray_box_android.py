@@ -1029,16 +1029,37 @@ import java.io.File
 object HevTunnelBridge {
     private const val TAG = "V2Ray/HevTunnelBridge"
 
+    // Keep this JNI contract exactly aligned with hev-jni.c. JNI_OnLoad
+    // registers all four methods at once; omitting even one makes
+    // RegisterNatives fail and System.loadLibrary throw UnsatisfiedLinkError.
     private external fun TProxyStartService(configPath: String, fd: Int): Boolean
     private external fun TProxyStopService(): Boolean
     private external fun TProxyIsRunning(): Boolean
+    private external fun TProxyGetStats(): LongArray
+
+    @Volatile
+    private var libraryLoaded = false
+
+    @Volatile
+    var lastError: String = ""
+        private set
 
     init {
-        System.loadLibrary("hev-socks5-tunnel")
+        try {
+            System.loadLibrary("hev-socks5-tunnel")
+            libraryLoaded = true
+        } catch (t: Throwable) {
+            lastError = "HEV native load failed: ${t.javaClass.simpleName}: ${t.message ?: "unknown"}"
+            Log.e(TAG, lastError, t)
+        }
     }
 
     @Synchronized
     fun start(context: Context, fd: Int): Boolean {
+        if (!libraryLoaded) {
+            Log.e(TAG, lastError.ifBlank { "HEV native library unavailable" })
+            return false
+        }
         stop()
         val config = File(context.filesDir, "hev-socks5-tunnel.yaml")
         config.writeText(
@@ -1064,15 +1085,24 @@ misc:
 
     @Synchronized
     fun stop(): Boolean {
+        if (!libraryLoaded) return true
         return runCatching {
             if (!TProxyIsRunning()) true else TProxyStopService()
         }.getOrElse {
-            Log.w(TAG, "stop failed", it)
+            lastError = "HEV stop failed: ${it.javaClass.simpleName}: ${it.message ?: "unknown"}"
+            Log.w(TAG, lastError, it)
             false
         }
     }
 
-    fun isRunning(): Boolean = runCatching { TProxyIsRunning() }.getOrDefault(false)
+    fun isRunning(): Boolean {
+        if (!libraryLoaded) return false
+        return runCatching { TProxyIsRunning() }.getOrElse {
+            lastError = "HEV status failed: ${it.javaClass.simpleName}: ${it.message ?: "unknown"}"
+            Log.w(TAG, lastError, it)
+            false
+        }
+    }
 }
 ''', encoding="utf-8")
 
