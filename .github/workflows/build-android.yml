@@ -2,7 +2,7 @@ name: Build AurumProxy Android APK
 
 on:
   push:
-    branches: [ main, fix/stable-android-routing-1.2.6 ]
+    branches: [ main, fix/android-routing-redesign-1.3.0 ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -69,7 +69,7 @@ jobs:
           grep -q 'statusEventSink?.success(mapOf("status" to status.name))' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/V2rayBoxPlugin.kt
           grep -q 'Handler(android.os.Looper.getMainLooper()).post' third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/V2rayBoxPlugin.kt
 
-      - name: Verify Xray transport-only + sing-box architecture
+      - name: Verify Xray-owned Android routing + sing-box proxy transport
         shell: bash
         run: |
           BOX_SERVICE="third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt"
@@ -78,7 +78,9 @@ jobs:
           ! grep -q "xray_config_router.dart" "$VPN_ENGINE"
           grep -q 'controller.startLoop(bridgeContent, tunFd)' "$BOX_SERVICE"
           grep -q 'XrayBridge.configureSocketProtection' "$BOX_SERVICE"
-          grep -q 'VPN data path active: TUN -> Xray transport-only -> sing-box' "$BOX_SERVICE"
+          grep -q 'VPN data path active: TUN -> Xray route/direct -> sing-box proxy transport' "$BOX_SERVICE"
+          grep -q 'Android routing owner=Xray mode=' "$BOX_SERVICE"
+          grep -q 'aurum-mode-smart' "$BOX_SERVICE"
           ! grep -q 'HevTunnelBridge' "$BOX_SERVICE"
           python3 - <<'PY'
           from pathlib import Path
@@ -89,8 +91,12 @@ jobs:
           assert "controller.startLoop(bridgeContent, tunFd)" in body
           assert "XrayBridge.configureSocketProtection(" in body
           assert "HevTunnelBridge" not in body
-          assert "TUN bridge transport-only -> 127.0.0.1:10808; sing-box owns routing/DNS" in box
-          print("Verified Android data path: VpnService TUN -> Xray transport-only -> sing-box.")
+          assert 'outboundTag" to "direct"' in box
+          assert 'outboundTag" to "proxy"' in box
+          assert 'geosite:cn' in box
+          assert 'geoip:cn' in box
+          assert 'port" to "53"' in box
+          print("Verified Android data path: VpnService TUN -> Xray direct/Smart routing -> sing-box proxy transport.")
           PY
 
       - name: Verify Connect button state machine
@@ -104,6 +110,9 @@ jobs:
           grep -q "connecting: s.connecting" lib/screens/home_screen.dart
           grep -q "runDiagnostics" lib/state/app_state.dart
           grep -q "开始路由自检" lib/screens/logs_screen.dart
+          grep -q "transportProxyOnly: Platform.isAndroid" lib/services/vpn_engine_service.dart
+          grep -q "aurum-mode-smart" lib/services/singbox_config_router.dart
+          grep -q "root.remove('dns')" lib/services/singbox_config_router.dart
 
       - name: Fetch bundled Geo databases
         shell: bash
@@ -219,15 +228,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.2.6-arm64.apk
-          sha256sum dist/AurumProxy-1.2.6-arm64.apk > dist/AurumProxy-1.2.6-arm64.apk.sha256
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.3.0-arm64.apk
+          sha256sum dist/AurumProxy-1.3.0-arm64.apk > dist/AurumProxy-1.3.0-arm64.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AurumProxy-1.2.6-arm64
+          name: AurumProxy-1.3.0-arm64
           path: |
-            dist/AurumProxy-1.2.6-arm64.apk
-            dist/AurumProxy-1.2.6-arm64.apk.sha256
+            dist/AurumProxy-1.3.0-arm64.apk
+            dist/AurumProxy-1.3.0-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
