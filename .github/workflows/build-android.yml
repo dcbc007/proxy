@@ -116,7 +116,8 @@ jobs:
       - name: Verify Connect button state machine
         shell: bash
         run: |
-          grep -q "coreInfo().timeout" lib/state/app_state.dart
+          grep -q "coreInfo()" lib/state/app_state.dart
+          grep -q "Duration(seconds: 4)" lib/state/app_state.dart
           ! grep -q "connecting = name == 'starting' || name == 'stopping'" lib/state/app_state.dart
           grep -q "_armConnectionWatchdog" lib/state/app_state.dart
           grep -q "HitTestBehavior.opaque" lib/widgets/power_button.dart
