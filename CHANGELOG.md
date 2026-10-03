@@ -1,3 +1,10 @@
+## 1.2.2
+
+- Smart 模式改为 Android TUN 边缘分流：中国私网/CN 域名/CN IP 直接连接，DNS 与非 CN 流量送入 sing-box。
+- Smart 规则切换到官方 geosite-cn + geoip-cn 规则集，避免 geolocation 标签与原生桥接识别不一致。
+- 国内 DNS 使用 AliDNS DoH，并固定 TLS SNI 为 dns.alidns.com；移除 Smart DNS 的 evaluate/respond 探测链，降低阻塞与误判。
+- CI 增加 Smart 分流结构回归检查，防止再次退化成全部转发模式。
+
 # Changelog
 
 ## 1.0.2
