@@ -16,8 +16,8 @@ class SingBoxConfigRouter {
     }
     root['outbounds'] = outbounds;
 
-    // Android owns the TUN. Xray is transport-only and forwards every
-    // TCP/UDP flow to this mixed inbound. sing-box is the only routing core.
+    // Android owns the TUN. The native Xray edge performs the first
+    // Smart/Global/Direct split; proxy-bound traffic and DNS arrive here.
     root['inbounds'] = [
       {
         'type': 'mixed',
@@ -32,11 +32,11 @@ class SingBoxConfigRouter {
     final smartMode = mode == '智能模式';
     final directMode = mode == '直连模式';
 
-    // Official sing-box China-client pattern:
-    // - China DNS goes directly to AliDNS.
-    // - Foreign DNS goes through the selected proxy.
-    // - Unknown domains are probed with China DNS; a CN answer is accepted,
-    //   otherwise they fall back to the proxied resolver.
+    // Stable China-client DNS pattern:
+    // - known CN domains use AliDNS directly;
+    // - known non-CN domains use Cloudflare through the selected proxy;
+    // - unknown domains fall back to the proxied resolver without a blocking
+    //   evaluate/respond probe.
     root['dns'] = {
       'servers': [
         {
@@ -78,7 +78,6 @@ class SingBoxConfigRouter {
             'action': 'route',
             'server': 'dns-remote',
           },
-
         ],
     };
 
