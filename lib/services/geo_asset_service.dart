@@ -49,7 +49,7 @@ class GeoAssetService {
     final target = Directory(dir);
     await target.create(recursive: true);
 
-    // 1.2.1 deliberately refreshes the bundled rule set once. Android keeps
+    // 1.2.2 deliberately refreshes the bundled rule set once. Android keeps
     // getExternalFilesDir across APK upgrades, so older/corrupt Geo files can
     // otherwise survive indefinitely and make Smart mode appear ineffective.
     final bundleMarker = File('$dir/.aurum_geo_bundle_1_2_2');
