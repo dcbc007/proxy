@@ -69,6 +69,15 @@ void main() {
     );
 
     final dns = config['dns'] as Map<String, dynamic>;
+    final dnsServers = dns['servers'] as List;
+    final cnDns = dnsServers.first as Map;
+    expect(cnDns['type'], 'udp');
+    expect(cnDns['server'], '223.5.5.5');
+    expect(cnDns['server_port'], 53);
+    expect(cnDns['detour'], 'direct');
+    final remoteDns = dnsServers[1] as Map;
+    expect(remoteDns['detour'], 'proxy');
+
     final dnsRules = dns['rules'] as List;
     expect((dnsRules[0] as Map)['server'], 'dns-cn');
     expect((dnsRules[1] as Map)['rule_set'], ['geosite-geolocation-cn']);
