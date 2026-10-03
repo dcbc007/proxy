@@ -102,6 +102,8 @@ jobs:
           grep -q "_armConnectionWatchdog" lib/state/app_state.dart
           grep -q "HitTestBehavior.opaque" lib/widgets/power_button.dart
           grep -q "connecting: s.connecting" lib/screens/home_screen.dart
+          grep -q "runDiagnostics" lib/state/app_state.dart
+          grep -q "开始路由自检" lib/screens/logs_screen.dart
 
       - name: Fetch bundled Geo databases
         shell: bash
