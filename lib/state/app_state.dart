@@ -23,7 +23,7 @@ class AppState extends ChangeNotifier {
   bool connecting = false;
   bool coreReady = false;
   String coreVersion = '';
-  String appVersion = '1.2.5';
+  String appVersion = '1.2.6';
   String mode = '智能模式';
   String downloadSpeed = '0 B/s';
   String uploadSpeed = '0 B/s';
@@ -599,6 +599,64 @@ class AppState extends ChangeNotifier {
     final hh = value.hour.toString().padLeft(2, '0');
     final mm = value.minute.toString().padLeft(2, '0');
     return '$y-$m-$d $hh:$mm';
+  }
+
+  Future<void> runDiagnostics() async {
+    _log('========== 路由自检开始 ==========');
+    _log('架构：Android TUN → Xray 纯传输桥 → sing-box');
+    _log('模式：$mode');
+    _log('核心状态：${coreReady ? '已就绪' : '未就绪'}${coreVersion.isEmpty ? '' : ' · $coreVersion'}');
+    _log('当前连接：${connected ? '已连接' : (connecting ? '连接中' : '未连接')}');
+
+    final node = selectedNode;
+    if (node == null) {
+      _log('自检失败：未选择节点');
+    } else {
+      _log('节点：${node.name} · ${node.protocol.label} · ${node.server}:${node.port}');
+      final pre = preProxyFor(node);
+      if (pre != null) {
+        _log('前置代理：${pre.name} → ${node.name}');
+      }
+    }
+
+    try {
+      final permission = await _vpn.hasVpnPermission();
+      _log('VPN 权限：${permission ? '已授权' : '未授权'}');
+    } catch (e) {
+      _log('VPN 权限检查失败：$e');
+    }
+
+    try {
+      geoAssetsReady = await _geo.hasSmartRuleAssets();
+      _log('Smart Geo：${geoAssetsReady ? '完整' : '缺失/不完整'}');
+    } catch (e) {
+      _log('Smart Geo 检查失败：$e');
+    }
+
+    if (node != null && coreReady) {
+      try {
+        final latency = await _vpn.ping(
+          node,
+          preProxy: preProxyFor(node),
+          allowTunnelFallback: connected && selectedNodeId == node.id,
+        );
+        _log(latency > 0 ? '节点核心握手：正常 · $latency ms' : '节点核心握手：失败/超时');
+      } catch (e) {
+        _log('节点核心握手失败：$e');
+      }
+    }
+
+    if (mode == '智能模式') {
+      _log('Smart DNS：中国 223.5.5.5:53 UDP 直连；国外 1.1.1.1 DoH 经代理');
+      _log('Smart 路由：中国域名/CN IP → direct；其余 → proxy');
+    } else if (mode == '全局模式') {
+      _log('全局路由：业务流量与国外 DNS → proxy');
+    } else {
+      _log('直连路由：业务流量 → direct；DNS → 223.5.5.5');
+    }
+
+    _log('========== 路由自检结束 ==========');
+    notifyListeners();
   }
 
   void clearLogs() {
