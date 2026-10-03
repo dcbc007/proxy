@@ -83,8 +83,8 @@ class VpnEngineService {
             .timeout(const Duration(seconds: 15), onTimeout: () => false);
       }
 
-      // All supported share links are parsed by sing-box in 1.2.0. This keeps
-      // routing, DNS, Geo matching and protocol transport in one core.
+      // Share links are parsed by sing-box. On Android the generated config
+      // is proxy-transport-only; Xray owns the TUN/direct/Smart decisions.
       final generated = await box.generateConfig(node.connectionLink);
       if (generated.trim().isEmpty) return false;
       final routed = SingBoxConfigRouter.apply(
@@ -194,6 +194,7 @@ class VpnEngineService {
     ProxyNode preProxy, {
     required String mode,
     String geoDir = '',
+    bool transportProxyOnly = false,
   }) async {
     final primaryRaw = await _rawSingBoxForNode(node);
     final preRaw = await _rawSingBoxForNode(preProxy);
@@ -202,7 +203,7 @@ class VpnEngineService {
       preRaw,
       mode: mode,
       geoDir: geoDir,
-      transportProxyOnly: Platform.isAndroid,
+      transportProxyOnly: transportProxyOnly || Platform.isAndroid,
     );
   }
 
