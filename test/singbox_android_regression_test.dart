@@ -89,4 +89,40 @@ void main() {
       '127.0.0.1:9090',
     );
   });
+
+  test('Android transport-only configs never use sing-box direct routing', () {
+    for (final mode in ['智能模式', '全局模式', '直连模式']) {
+      final config = jsonDecode(
+        SingBoxConfigRouter.apply(
+          jsonEncode({
+            'inbounds': [
+              {'type': 'mixed', 'listen': '127.0.0.1', 'listen_port': 10808},
+            ],
+            'outbounds': [outbound],
+            'route': {'final': 'proxy'},
+          }),
+          mode: mode,
+          geoDir: '/tmp/geo',
+          transportProxyOnly: true,
+        ),
+      ) as Map<String, dynamic>;
+
+      final route = config['route'] as Map<String, dynamic>;
+      expect(route['final'], 'proxy');
+      expect((route['rules'] as List), isEmpty);
+      expect(config['dns'], isNull);
+
+      final tags = (config['outbounds'] as List)
+          .map((e) => (e as Map)['tag']?.toString())
+          .whereType<String>()
+          .toSet();
+      final expectedMarker = switch (mode) {
+        '直连模式' => 'aurum-mode-direct',
+        '全局模式' => 'aurum-mode-global',
+        _ => 'aurum-mode-smart',
+      };
+      expect(tags, contains(expectedMarker));
+    }
+  });
+
 }
