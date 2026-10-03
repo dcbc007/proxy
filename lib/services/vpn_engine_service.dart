@@ -46,9 +46,10 @@ class VpnEngineService {
 
     final useChain = preProxy != null;
 
-    // 1.2.0: one routing engine only. Android's Xray TUN layer is a pure
-    // transport bridge; sing-box owns Smart/Global/Direct, DNS and Geo rules.
-    // This avoids the previous double-routing/double-DNS behavior.
+    // 1.3.0 Android routing redesign:
+    // Xray owns Android TUN + Direct/Smart routing + DNS interception.
+    // sing-box is transport-only and handles the selected proxy protocol.
+    // This guarantees all Android direct sockets use VpnService.protect(fd).
     await box.setCoreEngine('singbox');
     await box.setServiceMode(VpnMode.vpn);
 
@@ -63,6 +64,7 @@ class VpnEngineService {
           preProxy,
           mode: mode,
           geoDir: geoDir,
+          transportProxyOnly: Platform.isAndroid,
         );
         return box
             .connectWithJson(json, name: node.name)
@@ -74,6 +76,7 @@ class VpnEngineService {
           node,
           mode: mode,
           geoDir: geoDir,
+          transportProxyOnly: Platform.isAndroid,
         );
         return box
             .connectWithJson(json, name: node.name)
@@ -88,6 +91,7 @@ class VpnEngineService {
         generated,
         mode: mode,
         geoDir: geoDir,
+        transportProxyOnly: Platform.isAndroid,
       );
       return box
           .connectWithJson(routed, name: node.name)
@@ -145,10 +149,18 @@ class VpnEngineService {
     final raw = preProxy != null
         ? await _buildSingBoxChain(node, preProxy, mode: '全局模式')
         : (node.protocol == ProxyProtocol.snell
-            ? SingBoxConfigBuilder.fromNode(node, mode: '全局模式')
+            ? SingBoxConfigBuilder.fromNode(
+                node,
+                mode: '全局模式',
+                transportProxyOnly: Platform.isAndroid,
+              )
             : await box.generateConfig(node.connectionLink));
     if (raw.trim().isEmpty) return -1;
-    final config = SingBoxConfigRouter.apply(raw, mode: '全局模式');
+    final config = SingBoxConfigRouter.apply(
+      raw,
+      mode: '全局模式',
+      transportProxyOnly: Platform.isAndroid,
+    );
     final decoded = jsonDecode(config) as Map<String, dynamic>;
     final tag = (decoded['route'] as Map)['final'] as String;
     return await _vpnPermissionChannel
@@ -164,7 +176,11 @@ class VpnEngineService {
 
   Future<String> _rawSingBoxForNode(ProxyNode node) async {
     if (node.protocol == ProxyProtocol.snell) {
-      return SingBoxConfigBuilder.fromNode(node, mode: '全局模式');
+      return SingBoxConfigBuilder.fromNode(
+        node,
+        mode: '全局模式',
+        transportProxyOnly: Platform.isAndroid,
+      );
     }
     final raw = await box.generateConfig(node.connectionLink);
     if (raw.trim().isEmpty) {
@@ -186,6 +202,7 @@ class VpnEngineService {
       preRaw,
       mode: mode,
       geoDir: geoDir,
+      transportProxyOnly: Platform.isAndroid,
     );
   }
 
