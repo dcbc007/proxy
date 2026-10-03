@@ -8,6 +8,7 @@ class SingBoxChainConfig {
     String preProxyRaw, {
     String mode = '智能模式',
     String geoDir = '',
+    bool transportProxyOnly = false,
   }) {
     final primary = _firstProxyOutbound(primaryRaw, 'proxy');
     final preProxy = _firstProxyOutbound(preProxyRaw, 'preproxy');
@@ -35,6 +36,7 @@ class SingBoxChainConfig {
       jsonEncode(root),
       mode: mode,
       geoDir: geoDir,
+      transportProxyOnly: transportProxyOnly,
     );
   }
 
