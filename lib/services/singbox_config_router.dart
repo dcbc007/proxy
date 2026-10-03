@@ -5,6 +5,7 @@ class SingBoxConfigRouter {
     String raw, {
     String mode = '智能模式',
     String geoDir = '',
+    bool transportProxyOnly = false,
   }) {
     final root = Map<String, dynamic>.from(jsonDecode(raw) as Map);
     final outbounds = ((root['outbounds'] as List?) ?? const [])
@@ -31,6 +32,36 @@ class SingBoxConfigRouter {
     final proxyTag = _proxyTag(outbounds);
     final smartMode = mode == '智能模式';
     final directMode = mode == '直连模式';
+
+    // Android 1.3.0 architecture: sing-box is transport-only.
+    // Xray owns TUN, Direct, Smart Geo routing and DNS interception.
+    // sing-box must never decide "direct" for application traffic on Android.
+    if (transportProxyOnly) {
+      final marker = switch (mode) {
+        '直连模式' => 'aurum-mode-direct',
+        '全局模式' => 'aurum-mode-global',
+        _ => 'aurum-mode-smart',
+      };
+
+      if (!outbounds.any((o) => o['tag'] == marker)) {
+        outbounds.add({'type': 'direct', 'tag': marker});
+      }
+      root['outbounds'] = outbounds;
+
+      // No sing-box DNS hijack here. DNS packets are ordinary traffic from
+      // the Xray TUN layer: DIRECT sends them directly, SMART/GLOBAL send
+      // them through the selected proxy according to the Xray bridge rules.
+      root.remove('dns');
+      root['route'] = {
+        'rules': const <Map<String, dynamic>>[],
+        'final': proxyTag,
+      };
+      root['experimental'] = {
+        'cache_file': {'enabled': true},
+        'clash_api': {'external_controller': '127.0.0.1:9090'},
+      };
+      return jsonEncode(root);
+    }
 
     // Official sing-box China-client pattern:
     // - China DNS goes directly to AliDNS.
