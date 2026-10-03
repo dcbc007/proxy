@@ -39,6 +39,8 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _alertsSub;
   Timer? _timer;
   Timer? _latencyTimer;
+  Timer? _connectionWatchdog;
+  DateTime? _connectionOpStartedAt;
   final Set<String> testingNodeIds = {};
   final Set<String> failedLatencyNodeIds = {};
   bool testingAllNodes = false;
@@ -97,10 +99,20 @@ class AppState extends ChangeNotifier {
       await _vpn.initialize();
       final detectedVersion = await _vpn.appVersion();
       if (detectedVersion.isNotEmpty) appVersion = detectedVersion;
+
+      // Core initialization is the readiness gate. Reading the optional
+      // version/info payload must never disable the Connect button.
       coreReady = true;
-      final info = await _vpn.coreInfo();
-      coreVersion = info['version']?.toString() ?? '';
       _wireStreams();
+      try {
+        final info = await _vpn
+            .coreInfo()
+            .timeout(const Duration(seconds: 4));
+        coreVersion = info['version']?.toString() ?? '';
+      } catch (e) {
+        coreVersion = '';
+        _log('核心信息读取失败（不影响连接）：$e');
+      }
       _log('代理核心已初始化${coreVersion.isEmpty ? '' : ' · $coreVersion'}');
     } catch (e) {
       coreReady = false;
@@ -131,16 +143,24 @@ class AppState extends ChangeNotifier {
 
     _statusSub = _vpn.watchStatus().listen((status) {
       final name = status.name;
-      connecting = name == 'starting' || name == 'stopping';
-      final nowConnected = name == 'started';
-      final wasConnected = connected;
-      connected = nowConnected;
-      if (nowConnected && !wasConnected) {
-        _connectedAt = DateTime.now();
-        _startTimer();
-        _startLatencyTimer();
-      }
-      if (!nowConnected && name == 'stopped') {
+
+      // Do not let a stale native STARTING/STOPPING event lock the UI.
+      // Local commands own the transient "connecting" flag; terminal native
+      // states only clear it and synchronize the actual connection state.
+      if (name == 'started') {
+        final wasConnected = connected;
+        connected = true;
+        connecting = false;
+        _clearConnectionWatchdog();
+        if (!wasConnected) {
+          _connectedAt = DateTime.now();
+          _startTimer();
+          _startLatencyTimer();
+        }
+      } else if (name == 'stopped') {
+        connected = false;
+        connecting = false;
+        _clearConnectionWatchdog();
         _connectedAt = null;
         connectedDuration = Duration.zero;
         downloadSpeed = '0 B/s';
@@ -149,7 +169,11 @@ class AppState extends ChangeNotifier {
         _latencyTimer?.cancel();
       }
       notifyListeners();
-    }, onError: (Object e) => _logAndNotify('状态流错误：$e'));
+    }, onError: (Object e) {
+      connecting = false;
+      _clearConnectionWatchdog();
+      _logAndNotify('状态流错误：$e');
+    });
 
     _statsSub = _vpn.watchStats().listen((stats) {
       uploadSpeed = stats.formattedUplink;
@@ -186,15 +210,15 @@ class AppState extends ChangeNotifier {
 
     if (lower.contains('service stopped') ||
         lower.contains('stopping service with alert')) {
-      if (connected) {
-        connected = false;
-        _connectedAt = null;
-        connectedDuration = Duration.zero;
-        downloadSpeed = '0 B/s';
-        uploadSpeed = '0 B/s';
-        _timer?.cancel();
-        _latencyTimer?.cancel();
-      }
+      connecting = false;
+      _clearConnectionWatchdog();
+      connected = false;
+      _connectedAt = null;
+      connectedDuration = Duration.zero;
+      downloadSpeed = '0 B/s';
+      uploadSpeed = '0 B/s';
+      _timer?.cancel();
+      _latencyTimer?.cancel();
     }
   }
 
@@ -344,8 +368,36 @@ class AppState extends ChangeNotifier {
     });
   }
 
+  void _armConnectionWatchdog() {
+    _connectionWatchdog?.cancel();
+    _connectionOpStartedAt = DateTime.now();
+    _connectionWatchdog = Timer(const Duration(seconds: 30), () {
+      if (!connecting) return;
+      connecting = false;
+      _connectionOpStartedAt = null;
+      _log('连接状态等待超时，已自动解除按钮锁定');
+      notifyListeners();
+    });
+  }
+
+  void _clearConnectionWatchdog() {
+    _connectionWatchdog?.cancel();
+    _connectionWatchdog = null;
+    _connectionOpStartedAt = null;
+  }
+
   Future<void> toggleConnection() async {
-    if (connecting) return;
+    if (connecting) {
+      final startedAt = _connectionOpStartedAt;
+      if (startedAt != null &&
+          DateTime.now().difference(startedAt) < const Duration(seconds: 30)) {
+        _logAndNotify(connected ? '正在断开，请稍候' : '正在连接，请稍候');
+        return;
+      }
+      connecting = false;
+      _clearConnectionWatchdog();
+      _log('检测到残留连接状态，已解除按钮锁定');
+    }
     final node = selectedNode;
     if (node == null) {
       _logAndNotify('请先添加并选择节点');
@@ -356,6 +408,7 @@ class AppState extends ChangeNotifier {
       return;
     }
     connecting = true;
+    _armConnectionWatchdog();
     notifyListeners();
     try {
       if (connected) {
@@ -389,6 +442,7 @@ class AppState extends ChangeNotifier {
       _log('连接失败：$e');
     } finally {
       connecting = false;
+      _clearConnectionWatchdog();
       notifyListeners();
     }
   }
@@ -575,6 +629,7 @@ class AppState extends ChangeNotifier {
     _alertsSub?.cancel();
     _timer?.cancel();
     _latencyTimer?.cancel();
+    _connectionWatchdog?.cancel();
     super.dispose();
   }
 }
