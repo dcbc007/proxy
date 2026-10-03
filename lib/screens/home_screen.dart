@@ -130,6 +130,7 @@ class HomeScreen extends StatelessWidget {
               Center(
                 child: PowerButton(
                   connected: s.connected,
+                  connecting: s.connecting,
                   onTap: s.toggleConnection,
                 ),
               ),
