@@ -45,6 +45,10 @@ class SingBoxConfigRouter {
           'server': '223.5.5.5',
           'server_port': 443,
           'path': '/dns-query',
+          'tls': {
+            'enabled': true,
+            'server_name': 'dns.alidns.com',
+          },
         },
         {
           'type': 'https',
@@ -65,7 +69,7 @@ class SingBoxConfigRouter {
             'server': 'dns-cn',
           },
           {
-            'rule_set': ['geosite-geolocation-cn'],
+            'rule_set': ['geosite-cn'],
             'action': 'route',
             'server': 'dns-cn',
           },
@@ -74,20 +78,7 @@ class SingBoxConfigRouter {
             'action': 'route',
             'server': 'dns-remote',
           },
-          {
-            'action': 'evaluate',
-            'server': 'dns-cn',
-            'tag': 'cn-probe',
-          },
-          {
-            'match_response': 'cn-probe',
-            'rule_set': ['geoip-cn'],
-            'action': 'respond',
-          },
-          {
-            'action': 'route',
-            'server': 'dns-remote',
-          },
+
         ],
     };
 
@@ -153,20 +144,12 @@ class SingBoxConfigRouter {
             'outbound': 'direct',
           },
           {
-            'rule_set': ['geosite-geolocation-cn'],
+            'rule_set': ['geosite-cn'],
             'action': 'route',
             'outbound': 'direct',
           },
           {
-            'type': 'logical',
-            'mode': 'and',
-            'rules': [
-              {'rule_set': ['geoip-cn']},
-              {
-                'rule_set': ['geosite-geolocation-!cn'],
-                'invert': true,
-              },
-            ],
+            'rule_set': ['geoip-cn'],
             'action': 'route',
             'outbound': 'direct',
           },
@@ -212,9 +195,9 @@ class SingBoxConfigRouter {
         },
         {
           'type': 'local',
-          'tag': 'geosite-geolocation-cn',
+          'tag': 'geosite-cn',
           'format': 'binary',
-          'path': '$geoDir/geosite-geolocation-cn.srs',
+          'path': '$geoDir/geosite-cn.srs',
         },
         {
           'type': 'local',
@@ -236,10 +219,10 @@ class SingBoxConfigRouter {
       },
       {
         'type': 'remote',
-        'tag': 'geosite-geolocation-cn',
+        'tag': 'geosite-cn',
         'format': 'binary',
         'url':
-            'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs',
+            'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs',
         'update_interval': '1d',
       },
       {
