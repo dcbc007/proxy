@@ -51,6 +51,10 @@ void main() {
   test('DNS is intercepted in sing-box and mode-specific DNS stays correct', () {
     final direct = routed('直连模式');
     expect(direct['dns']['final'], 'dns-cn');
+    expect(direct['dns']['servers'][0]['type'], 'udp');
+    expect(direct['dns']['servers'][0]['server'], '223.5.5.5');
+    expect(direct['dns']['servers'][0]['server_port'], 53);
+    expect(direct['dns']['servers'][0]['detour'], 'direct');
     expect(direct['route']['final'], 'direct');
     final directRules = direct['route']['rules'] as List;
     expect(directRules.length, 1);
