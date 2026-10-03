@@ -1245,3 +1245,129 @@ vns = vns.replace(old_selected_condition_130, new_selected_condition_130, 1)
 
 vpns.write_text(vns, encoding="utf-8")
 print("Applied 1.3.0 Android split-routing architecture: Xray direct/Smart + sing-box proxy-only.")
+
+
+# 1.3.0 compile-hardening after full generated-source validation.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+# Kotlin infix 'to' has lower-precedence surprises with ==; force Boolean value.
+bs = bs.replace(
+    '"enabled" to routingMode == "SMART"',
+    '"enabled" to (routingMode == "SMART")',
+    1,
+)
+
+# Re-add Xray route/DNS helpers if a previous helper replacement removed them.
+if 'private fun inferRoutingModeFromXrayConfig(configJson: String): String' not in bs:
+    anchor_130 = '        private fun buildXrayTunBridge(\n'
+    pos_130 = bs.find(anchor_130)
+    if pos_130 < 0:
+        raise SystemExit("1.3.0 buildXrayTunBridge anchor missing")
+    helpers_130 = '''        private fun inferRoutingModeFromXrayConfig(configJson: String): String {
+            return runCatching {
+                val root = com.google.gson.JsonParser.parseString(configJson).asJsonObject
+                val routing = root.getAsJsonObject("routing")
+                val rules = routing?.getAsJsonArray("rules")
+                val text = rules?.toString().orEmpty()
+                if (text.contains("geosite:cn") || text.contains("geoip:cn")) {
+                    "SMART"
+                } else {
+                    val last = rules?.lastOrNull()?.asJsonObject
+                    when (last?.get("outboundTag")?.asString) {
+                        "direct" -> "DIRECT"
+                        else -> "GLOBAL"
+                    }
+                }
+            }.getOrElse {
+                Log.w(TAG, "Unable to infer Xray routing mode: ${it.message}")
+                "GLOBAL"
+            }
+        }
+
+        private fun underlyingDnsServer(context: Context): String? {
+            return runCatching {
+                val cm = V2rayBoxPlugin.connectivity
+                    ?: context.getSystemService(android.net.ConnectivityManager::class.java)
+                val network = DefaultNetworkMonitor.defaultNetwork ?: cm.activeNetwork
+                val props = network?.let { cm.getLinkProperties(it) }
+                val address = props?.dnsServers?.firstOrNull {
+                    !it.isLoopbackAddress && !it.isAnyLocalAddress
+                } ?: return@runCatching null
+                val host = address.hostAddress?.substringBefore('%')
+                    ?.takeIf { it.isNotBlank() } ?: return@runCatching null
+                if (address is java.net.Inet6Address) "[$host]:53" else "$host:53"
+            }.getOrNull()
+        }
+
+        private fun dnsServerForRoutingMode(context: Context, routingMode: String): String? {
+            val systemDns = underlyingDnsServer(context)
+            Log.d(TAG, "Core endpoint DNS for $routingMode: ${systemDns ?: "system/default"}")
+            return systemDns
+        }
+
+'''
+    bs = bs[:pos_130] + helpers_130 + bs[pos_130:]
+
+bp.write_text(bs, encoding="utf-8")
+
+# Replace the whole VPN routing-mode parser, not a partial if/else fragment.
+vpns = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/VPNService.kt")
+vns = vpns.read_text(encoding="utf-8")
+mode_start_130 = vns.find('        val routingMode = runCatching {')
+dns_start_130 = vns.find('        val selectedDns', mode_start_130)
+if mode_start_130 < 0 or dns_start_130 < 0:
+    raise SystemExit("1.3.0 VPN routing mode block not found")
+mode_block_130 = '''        val routingMode = runCatching {
+            val content = java.io.File(Settings.activeConfigPath).readText()
+            val root = com.google.gson.JsonParser.parseString(content).asJsonObject
+            val tags = root.getAsJsonArray("outbounds")
+                ?.mapNotNull { it.asJsonObject.get("tag")?.asString }
+                ?.toSet()
+                .orEmpty()
+
+            when {
+                tags.contains("aurum-mode-direct") -> "DIRECT"
+                tags.contains("aurum-mode-global") -> "GLOBAL"
+                tags.contains("aurum-mode-smart") -> "SMART"
+                root.getAsJsonObject("route") != null -> {
+                    val route = root.getAsJsonObject("route")
+                    val finalTag = route.get("final")?.asString.orEmpty()
+                    val text = route.toString()
+                    when {
+                        finalTag == "direct" -> "DIRECT"
+                        text.contains("geoip-cn") ||
+                            text.contains("geosite-geolocation-cn") ||
+                            text.contains("geosite-cn") -> "SMART"
+                        else -> "GLOBAL"
+                    }
+                }
+                else -> {
+                    val xrayRouting = root.getAsJsonObject("routing")
+                    val rules = xrayRouting?.getAsJsonArray("rules")
+                    val text = rules?.toString().orEmpty()
+                    when {
+                        text.contains("geosite:cn") || text.contains("geoip:cn") -> "SMART"
+                        rules?.lastOrNull()?.asJsonObject
+                            ?.get("outboundTag")?.asString == "direct" -> "DIRECT"
+                        else -> "GLOBAL"
+                    }
+                }
+            }
+        }.getOrElse {
+            Log.w(TAG, "Unable to infer VPN routing mode for DNS: ${it.message}")
+            "GLOBAL"
+        }
+
+'''
+vns = vns[:mode_start_130] + mode_block_130 + vns[dns_start_130:]
+
+# Keep DIRECT and SMART on underlying/China-reachable DNS.
+vns = vns.replace(
+    'if (routingMode == "DIRECT") {',
+    'if (routingMode == "DIRECT" || routingMode == "SMART") {',
+    1,
+)
+
+vpns.write_text(vns, encoding="utf-8")
+print("Hardened 1.3.0 generated Kotlin after compiler validation.")
