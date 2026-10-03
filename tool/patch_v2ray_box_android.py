@@ -1002,3 +1002,246 @@ bs = bs.replace(
 )
 bp.write_text(bs, encoding="utf-8")
 print("Kept stable Android data path: VpnService TUN -> Xray transport-only -> sing-box.")
+
+
+# 1.3.0 Android routing redesign.
+# Xray owns TUN + DIRECT/SMART decisions. sing-box is proxy transport only.
+# This removes Android application direct traffic from the standalone sing-box
+# child process and guarantees direct sockets use VpnService.protect(fd).
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+old_writer_130 = '''                if (Settings.serviceMode == ServiceMode.VPN) {
+                    val bridgeConfig = buildXrayTunBridge(context, "GLOBAL")
+                    val bridgeFile = File(wDir, "active_config.json")
+                    bridgeFile.writeText(bridgeConfig)
+                    Log.d(TAG, "Xray TUN bridge written in transport-only mode -> sing-box")
+                }
+'''
+new_writer_130 = '''                if (Settings.serviceMode == ServiceMode.VPN) {
+                    val routingMode = inferRoutingModeFromSingboxConfig(configJson)
+                    val bridgeConfig = buildXrayTunBridge(context, routingMode)
+                    val bridgeFile = File(wDir, "active_config.json")
+                    bridgeFile.writeText(bridgeConfig)
+                    Log.d(TAG, "Xray TUN routing owner mode=$routingMode; sing-box proxy transport only")
+                }
+'''
+if old_writer_130 not in bs:
+    raise SystemExit("1.3.0 writer pattern not found")
+bs = bs.replace(old_writer_130, new_writer_130, 1)
+
+helper_start = bs.find('        private fun inferRoutingModeFromSingboxConfig(configJson: String): String {')
+helper_end = bs.find('        private fun buildXrayTunBridge(', helper_start)
+if helper_start < 0 or helper_end < 0:
+    raise SystemExit("1.3.0 routing mode helper not found")
+new_helper_130 = '''        private fun inferRoutingModeFromSingboxConfig(configJson: String): String {
+            return runCatching {
+                val root = com.google.gson.JsonParser.parseString(configJson).asJsonObject
+                val tags = root.getAsJsonArray("outbounds")
+                    ?.mapNotNull { it.asJsonObject.get("tag")?.asString }
+                    ?.toSet()
+                    .orEmpty()
+
+                when {
+                    tags.contains("aurum-mode-direct") -> "DIRECT"
+                    tags.contains("aurum-mode-global") -> "GLOBAL"
+                    tags.contains("aurum-mode-smart") -> "SMART"
+                    else -> {
+                        val route = root.getAsJsonObject("route")
+                        val finalTag = route?.get("final")?.asString ?: ""
+                        val routeText = route?.toString().orEmpty()
+                        when {
+                            finalTag == "direct" -> "DIRECT"
+                            routeText.contains("geoip-cn") ||
+                                routeText.contains("geosite-geolocation-cn") ||
+                                routeText.contains("geosite-cn") -> "SMART"
+                            else -> "GLOBAL"
+                        }
+                    }
+                }
+            }.getOrElse {
+                Log.w(TAG, "Unable to infer sing-box routing mode: ${it.message}")
+                "GLOBAL"
+            }
+        }
+
+'''
+bs = bs[:helper_start] + new_helper_130 + bs[helper_end:]
+
+old_rules_130 = '''            val routingRules = listOf(
+                mapOf<String, Any>(
+                    "type" to "field",
+                    "network" to "tcp,udp",
+                    "outboundTag" to "proxy"
+                )
+            )
+
+'''
+new_rules_130 = '''            val routingRules = mutableListOf<Map<String, Any>>()
+            when (routingMode) {
+                "DIRECT" -> {
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "network" to "tcp,udp",
+                            "outboundTag" to "direct"
+                        )
+                    )
+                }
+                "SMART" -> {
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "ip" to listOf("geoip:private"),
+                            "outboundTag" to "direct"
+                        )
+                    )
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "port" to "53",
+                            "outboundTag" to "direct"
+                        )
+                    )
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "domain" to listOf("geosite:cn", "domain:cn"),
+                            "outboundTag" to "direct"
+                        )
+                    )
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "ip" to listOf("geoip:cn"),
+                            "outboundTag" to "direct"
+                        )
+                    )
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "network" to "tcp,udp",
+                            "outboundTag" to "proxy"
+                        )
+                    )
+                }
+                else -> {
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "network" to "tcp,udp",
+                            "outboundTag" to "proxy"
+                        )
+                    )
+                }
+            }
+
+'''
+if old_rules_130 not in bs:
+    raise SystemExit("1.3.0 transport-only rules pattern not found")
+bs = bs.replace(old_rules_130, new_rules_130, 1)
+
+old_strategy_130 = '''            val routeDomainStrategy = "AsIs"'''
+new_strategy_130 = '''            val routeDomainStrategy =
+                if (routingMode == "SMART") "IPIfNonMatch" else "AsIs"'''
+if old_strategy_130 not in bs:
+    raise SystemExit("1.3.0 route strategy pattern not found")
+bs = bs.replace(old_strategy_130, new_strategy_130, 1)
+
+old_sniff_130 = '''                        "sniffing" to mapOf(
+                            "enabled" to false
+                        )
+'''
+new_sniff_130 = '''                        "sniffing" to mapOf(
+                            "enabled" to routingMode == "SMART",
+                            "destOverride" to listOf("http", "tls", "quic")
+                        )
+'''
+if old_sniff_130 not in bs:
+    raise SystemExit("1.3.0 sniffing pattern not found")
+bs = bs.replace(old_sniff_130, new_sniff_130, 1)
+
+old_transport_dns_130 = '''                emitServiceLog(
+                    "TUN bridge transport-only -> 127.0.0.1:10808; sing-box owns routing/DNS",
+                    force = true
+                )
+                XrayBridge.configureSocketProtection(
+                    protectFd = { fd -> platformInterface.autoDetectInterfaceControl(fd) },
+                    dnsServer = null
+                )
+'''
+new_transport_dns_130 = '''                val bridgeRoutingMode = inferRoutingModeFromXrayConfig(bridgeContent)
+                val bridgeDnsServer = dnsServerForRoutingMode(service, bridgeRoutingMode)
+                emitServiceLog(
+                    "Android routing owner=Xray mode=$bridgeRoutingMode; sing-box=proxy-only; dns=${bridgeDnsServer ?: "system/default"}",
+                    force = true
+                )
+                XrayBridge.configureSocketProtection(
+                    protectFd = { fd -> platformInterface.autoDetectInterfaceControl(fd) },
+                    dnsServer = bridgeDnsServer
+                )
+'''
+if old_transport_dns_130 not in bs:
+    raise SystemExit("1.3.0 transport DNS pattern not found")
+bs = bs.replace(old_transport_dns_130, new_transport_dns_130, 1)
+
+bs = bs.replace(
+    'VPN data path active: TUN -> Xray transport-only -> sing-box',
+    'VPN data path active: TUN -> Xray route/direct -> sing-box proxy transport',
+    1,
+)
+
+bp.write_text(bs, encoding="utf-8")
+
+# Advertise DNS consistent with Xray-owned routing.
+# DIRECT/SMART use the underlying network DNS (China-safe fallback);
+# GLOBAL uses public DNS and Xray forwards those DNS packets through proxy.
+vpns = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/VPNService.kt")
+vns = vpns.read_text(encoding="utf-8")
+
+old_mode_130 = '''            val singRoute = root.getAsJsonObject("route")
+            if (singRoute != null) {
+                val finalTag = singRoute.get("final")?.asString.orEmpty()
+                val text = singRoute.toString()
+                when {
+                    finalTag == "direct" -> "DIRECT"
+                    text.contains("geosite-cn") || text.contains("geoip-cn") -> "SMART"
+                    else -> "GLOBAL"
+                }
+            } else {
+'''
+new_mode_130 = '''            val tags = root.getAsJsonArray("outbounds")
+                ?.mapNotNull { it.asJsonObject.get("tag")?.asString }
+                ?.toSet()
+                .orEmpty()
+            when {
+                tags.contains("aurum-mode-direct") -> "DIRECT"
+                tags.contains("aurum-mode-global") -> "GLOBAL"
+                tags.contains("aurum-mode-smart") -> "SMART"
+                root.getAsJsonObject("route") != null -> {
+                    val singRoute = root.getAsJsonObject("route")
+                    val finalTag = singRoute.get("final")?.asString.orEmpty()
+                    val text = singRoute.toString()
+                    when {
+                        finalTag == "direct" -> "DIRECT"
+                        text.contains("geosite-geolocation-cn") ||
+                            text.contains("geosite-cn") ||
+                            text.contains("geoip-cn") -> "SMART"
+                        else -> "GLOBAL"
+                    }
+                }
+                else -> {
+'''
+if old_mode_130 not in vns:
+    raise SystemExit("1.3.0 VPN mode inference pattern not found")
+vns = vns.replace(old_mode_130, new_mode_130, 1)
+
+old_selected_condition_130 = '''        val selectedDns = if (routingMode == "DIRECT") {'''
+new_selected_condition_130 = '''        val selectedDns =
+            if (routingMode == "DIRECT" || routingMode == "SMART") {'''
+if old_selected_condition_130 not in vns:
+    raise SystemExit("1.3.0 selected DNS condition not found")
+vns = vns.replace(old_selected_condition_130, new_selected_condition_130, 1)
+
+vpns.write_text(vns, encoding="utf-8")
+print("Applied 1.3.0 Android split-routing architecture: Xray direct/Smart + sing-box proxy-only.")
