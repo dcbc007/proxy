@@ -971,3 +971,154 @@ bs = bs.replace(
 )
 bp.write_text(bs, encoding="utf-8")
 print("Removed routing decisions from Android TUN bridge.")
+
+
+# 1.2.2 Smart routing architecture:
+# - Android Xray TUN edge makes the first routing decision.
+# - CN/private traffic exits directly from the TUN edge.
+# - DNS and non-CN traffic are forwarded to sing-box.
+# - sing-box remains responsible for proxy protocols and split DNS.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+transport_writer = '''                if (Settings.serviceMode == ServiceMode.VPN) {
+                    val bridgeConfig = buildXrayTunBridge(context, "GLOBAL")
+                    val bridgeFile = File(wDir, "active_config.json")
+                    bridgeFile.writeText(bridgeConfig)
+                    Log.d(TAG, "Xray TUN bridge written in transport-only mode -> sing-box")
+                }
+'''
+smart_writer = '''                if (Settings.serviceMode == ServiceMode.VPN) {
+                    val routingMode = inferRoutingModeFromSingboxConfig(configJson)
+                    val bridgeConfig = buildXrayTunBridge(context, routingMode)
+                    val bridgeFile = File(wDir, "active_config.json")
+                    bridgeFile.writeText(bridgeConfig)
+                    Log.d(TAG, "Xray TUN edge routing mode=$routingMode -> sing-box for proxy/DNS")
+                }
+'''
+if transport_writer not in bs:
+    raise SystemExit("1.2.2 transport writer pattern not found")
+bs = bs.replace(transport_writer, smart_writer, 1)
+
+disabled_sniff = '''                        "sniffing" to mapOf(
+                            "enabled" to false
+                        )
+'''
+smart_sniff = '''                        "sniffing" to mapOf(
+                            "enabled" to true,
+                            "destOverride" to listOf("http", "tls", "quic"),
+                            "routeOnly" to true
+                        )
+'''
+if disabled_sniff not in bs:
+    raise SystemExit("1.2.2 disabled sniff pattern not found")
+bs = bs.replace(disabled_sniff, smart_sniff, 1)
+
+simple_rules = '''            val routingRules = listOf(
+                mapOf<String, Any>(
+                    "type" to "field",
+                    "network" to "tcp,udp",
+                    "outboundTag" to "proxy"
+                )
+            )
+
+'''
+smart_rules = '''            val routingRules = mutableListOf<Map<String, Any>>()
+            when (routingMode) {
+                "DIRECT" -> {
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "network" to "tcp,udp",
+                            "outboundTag" to "direct"
+                        )
+                    )
+                }
+                "SMART" -> {
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "ip" to listOf("geoip:private"),
+                            "outboundTag" to "direct"
+                        )
+                    )
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "port" to "53",
+                            "outboundTag" to "proxy"
+                        )
+                    )
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "domain" to listOf("geosite:cn", "domain:cn"),
+                            "outboundTag" to "direct"
+                        )
+                    )
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "ip" to listOf("geoip:cn"),
+                            "outboundTag" to "direct"
+                        )
+                    )
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "network" to "tcp,udp",
+                            "outboundTag" to "proxy"
+                        )
+                    )
+                }
+                else -> {
+                    routingRules.add(
+                        mapOf(
+                            "type" to "field",
+                            "network" to "tcp,udp",
+                            "outboundTag" to "proxy"
+                        )
+                    )
+                }
+            }
+
+'''
+if simple_rules not in bs:
+    raise SystemExit("1.2.2 simple routing rules pattern not found")
+bs = bs.replace(simple_rules, smart_rules, 1)
+
+if '            val routeDomainStrategy = "AsIs"' not in bs:
+    raise SystemExit("1.2.2 AsIs strategy pattern not found")
+bs = bs.replace(
+    '            val routeDomainStrategy = "AsIs"',
+    '''            val routeDomainStrategy =
+                if (routingMode == "SMART") "IPIfNonMatch" else "AsIs"''',
+    1,
+)
+
+transport_dns = '''                emitServiceLog(
+                    "TUN bridge transport-only -> 127.0.0.1:10808; sing-box owns routing/DNS",
+                    force = true
+                )
+                XrayBridge.configureSocketProtection(
+                    protectFd = { fd -> platformInterface.autoDetectInterfaceControl(fd) },
+                    dnsServer = null
+                )
+'''
+smart_dns = '''                val bridgeRoutingMode = inferRoutingModeFromXrayConfig(bridgeContent)
+                val bridgeDnsServer = dnsServerForRoutingMode(service, bridgeRoutingMode)
+                emitServiceLog(
+                    "TUN edge routing=$bridgeRoutingMode dns=${bridgeDnsServer ?: "system/default"}",
+                    force = true
+                )
+                XrayBridge.configureSocketProtection(
+                    protectFd = { fd -> platformInterface.autoDetectInterfaceControl(fd) },
+                    dnsServer = bridgeDnsServer
+                )
+'''
+if transport_dns not in bs:
+    raise SystemExit("1.2.2 transport DNS pattern not found")
+bs = bs.replace(transport_dns, smart_dns, 1)
+
+bp.write_text(bs, encoding="utf-8")
+print("Patched 1.2.2 Smart routing at Android TUN edge.")
