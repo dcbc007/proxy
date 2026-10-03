@@ -971,3 +971,109 @@ bs = bs.replace(
 )
 bp.write_text(bs, encoding="utf-8")
 print("Removed routing decisions from Android TUN bridge.")
+
+# 1.2.2: replace the Xray TUN->SOCKS data bridge with hev-socks5-tunnel.
+# This mirrors the mature Android VPN path used by v2rayNG: VpnService TUN
+# -> HEV tun2socks -> sing-box mixed inbound. Xray is no longer in the data path.
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+fn_start = bs.find('    private suspend fun startSingboxEngine')
+vpn_start = bs.find('        if (isVpnMode) {', fn_start)
+return_marker = '        return true\n    }\n\n    fun serviceReload()'
+vpn_end = bs.find(return_marker, vpn_start)
+if fn_start < 0 or vpn_start < 0 or vpn_end < 0:
+    raise SystemExit('Unable to locate sing-box VPN bridge block for HEV replacement')
+
+hev_vpn_block = '''        if (isVpnMode) {
+            val pfd = platformInterface.createTun()
+            if (pfd == null) {
+                SingboxProcess.stop()
+                emitServiceLog("sing-box HEV bridge failed: unable to create TUN", force = true)
+                stopAndAlert(Alert.StartService, "Failed to create TUN interface")
+                return false
+            }
+            val tunFd = pfd.fd
+            Log.d(TAG, "TUN created with fd=$tunFd, starting HEV tun2socks...")
+            emitServiceLog("TUN created; starting HEV -> sing-box bridge", force = true)
+
+            if (!HevTunnelBridge.start(service, tunFd)) {
+                SingboxProcess.stop()
+                platformInterface.closeTun()
+                emitServiceLog("HEV tun2socks failed to start", force = true)
+                stopAndAlert(Alert.StartService, "HEV tun2socks failed to start")
+                return false
+            }
+            Log.d(TAG, "HEV tun2socks started for sing-box VPN mode")
+            emitServiceLog("HEV tun2socks -> sing-box active", force = true)
+        }
+'''
+bs = bs[:vpn_start] + hev_vpn_block + bs[vpn_end:]
+
+stop_start = bs.find('    private fun stopCore(async: Boolean = true, closeTun: Boolean = true) {')
+if stop_start < 0:
+    raise SystemExit('Unable to locate stopCore for HEV cleanup')
+stop_insert = bs.find('\n', stop_start) + 1
+bs = bs[:stop_insert] + '''        runCatching { HevTunnelBridge.stop() }
+            .onFailure { Log.w(TAG, "Error stopping HEV tun2socks", it) }
+''' + bs[stop_insert:]
+bp.write_text(bs, encoding="utf-8")
+
+hev = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/HevTunnelBridge.kt")
+hev.write_text('''package com.example.v2ray_box.bg
+
+import android.content.Context
+import android.util.Log
+import java.io.File
+
+object HevTunnelBridge {
+    private const val TAG = "V2Ray/HevTunnelBridge"
+
+    private external fun TProxyStartService(configPath: String, fd: Int): Boolean
+    private external fun TProxyStopService(): Boolean
+    private external fun TProxyIsRunning(): Boolean
+
+    init {
+        System.loadLibrary("hev-socks5-tunnel")
+    }
+
+    @Synchronized
+    fun start(context: Context, fd: Int): Boolean {
+        stop()
+        val config = File(context.filesDir, "hev-socks5-tunnel.yaml")
+        config.writeText(
+            """
+tunnel:
+  mtu: 1500
+  ipv4: 26.26.26.1
+  ipv6: 'da26:2626::1'
+socks5:
+  address: 127.0.0.1
+  port: 10808
+  udp: 'udp'
+misc:
+  tcp-read-write-timeout: 300000
+  udp-read-write-timeout: 60000
+  log-level: warn
+""".trimIndent()
+        )
+        val ok = TProxyStartService(config.absolutePath, fd)
+        Log.d(TAG, "start result=" + ok)
+        return ok
+    }
+
+    @Synchronized
+    fun stop(): Boolean {
+        return runCatching {
+            if (!TProxyIsRunning()) true else TProxyStopService()
+        }.getOrElse {
+            Log.w(TAG, "stop failed", it)
+            false
+        }
+    }
+
+    fun isRunning(): Boolean = runCatching { TProxyIsRunning() }.getOrDefault(false)
+}
+''', encoding="utf-8")
+
+print("Patched Android VPN data path to HEV tun2socks -> sing-box.")
