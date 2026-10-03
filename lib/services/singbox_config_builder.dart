@@ -11,6 +11,7 @@ class SingBoxConfigBuilder {
     ProxyNode n, {
     String mode = '智能模式',
     String geoDir = '',
+    bool transportProxyOnly = false,
   }) {
     final outbound = <String, dynamic>{
       'tag': 'proxy',
@@ -186,6 +187,7 @@ class SingBoxConfigBuilder {
       }),
       mode: mode,
       geoDir: geoDir,
+      transportProxyOnly: transportProxyOnly,
     );
   }
 
