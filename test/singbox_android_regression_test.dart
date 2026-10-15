@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:aurum_proxy/services/singbox_config_router.dart';
 import 'package:aurum_proxy/services/singbox_config_builder.dart';
 import 'package:aurum_proxy/models/proxy_node.dart';
+import 'package:aurum_proxy/services/qr_payload_parser.dart';
 
 void main() {
   final outbound = {
@@ -217,6 +218,46 @@ void main() {
     expect(protected['server'], '127.0.0.1');
     expect(protected['server_port'], 10809);
     expect(protected['version'], '5');
+  });
+
+
+  test('HY2 peer alias survives import and strict TLS config generation', () {
+    final node = QrPayloadParser.parse(
+      'hy2://test-password@203.0.113.10:443?peer=hy2.example.com&skip-cert-verify=0&alpn=h3#HY2',
+    );
+    expect(node.protocol, ProxyProtocol.hysteria2);
+    expect(node.server, '203.0.113.10');
+    expect(node.sni, 'hy2.example.com');
+    expect(node.tlsInsecure, false);
+
+    final config = jsonDecode(
+      SingBoxConfigBuilder.fromNode(
+        node,
+        mode: '全局模式',
+        transportProxyOnly: true,
+        systemCaBundlePath: '/data/user/0/app/files/aurum-system-ca.pem',
+      ),
+    ) as Map<String, dynamic>;
+    final proxy = (config['outbounds'] as List)
+        .cast<Map>()
+        .firstWhere((e) => e['tag'] == 'proxy');
+    final tls = proxy['tls'] as Map;
+    expect(tls['server_name'], 'hy2.example.com');
+    expect(tls['insecure'], isNull);
+    expect(
+      tls['certificate_path'],
+      '/data/user/0/app/files/aurum-system-ca.pem',
+    );
+    expect(tls['alpn'], ['h3']);
+  });
+
+  test('HY2 allowInsecure aliases are normalized by Aurum parser', () {
+    for (final key in ['insecure', 'allowInsecure', 'skip-cert-verify']) {
+      final node = QrPayloadParser.parse(
+        'hy2://pw@hy.example.com:443?$key=1#HY2',
+      );
+      expect(node.tlsInsecure, true, reason: key);
+    }
   });
 
 }
