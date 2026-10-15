@@ -6,6 +6,7 @@ class SingBoxConfigRouter {
     String mode = '智能模式',
     String geoDir = '',
     bool transportProxyOnly = false,
+    String systemCaBundlePath = '',
   }) {
     final root = Map<String, dynamic>.from(jsonDecode(raw) as Map);
     final outbounds = ((root['outbounds'] as List?) ?? const [])
@@ -28,6 +29,9 @@ class SingBoxConfigRouter {
       },
     ];
     root['log'] = {'level': 'warn', 'timestamp': false};
+
+    _applyAndroidSystemCa(outbounds, systemCaBundlePath);
+    root['outbounds'] = outbounds;
 
     final proxyTag = _proxyTag(outbounds);
     final smartMode = mode == '智能模式';
@@ -229,6 +233,49 @@ class SingBoxConfigRouter {
       'clash_api': {'external_controller': '127.0.0.1:9090'},
     };
     return jsonEncode(root);
+  }
+
+  static void _applyAndroidSystemCa(
+    List<Map<String, dynamic>> outbounds,
+    String systemCaBundlePath,
+  ) {
+    final caPath = systemCaBundlePath.trim();
+    if (caPath.isEmpty) return;
+
+    for (final outbound in outbounds) {
+      final rawTls = outbound['tls'];
+      if (rawTls is! Map) continue;
+
+      final tls = Map<String, dynamic>.from(rawTls);
+      if (tls['enabled'] == false || tls['insecure'] == true) continue;
+
+      final reality = tls['reality'];
+      if (reality is Map && reality['enabled'] == true) continue;
+
+      final hasPinnedOrCustomTrust =
+          tls['certificate'] != null ||
+          (tls['certificate_path']?.toString().trim().isNotEmpty ?? false) ||
+          tls['certificate_sha256'] != null ||
+          tls['certificate_public_key_sha256'] != null;
+      if (hasPinnedOrCustomTrust) continue;
+
+      final serverName = tls['server_name']?.toString().trim() ?? '';
+      final server = outbound['server']?.toString().trim() ?? '';
+      if (serverName.isEmpty && server.isNotEmpty) {
+        tls['server_name'] = _stripIpv6Brackets(server);
+      }
+
+      tls['certificate_path'] = caPath;
+      outbound['tls'] = tls;
+    }
+  }
+
+  static String _stripIpv6Brackets(String value) {
+    final v = value.trim();
+    if (v.length >= 2 && v.startsWith('[') && v.endsWith(']')) {
+      return v.substring(1, v.length - 1);
+    }
+    return v;
   }
 
   static List<Map<String, dynamic>> _smartRuleSets(String geoDir) {
