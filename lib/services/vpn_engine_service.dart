@@ -18,11 +18,23 @@ class VpnEngineService {
 
   final V2rayBox box = V2rayBox();
   final GeoAssetService _geo = GeoAssetService();
+  String _systemCaBundlePath = '';
 
   Future<void> initialize() async {
     await box.initialize(notificationStopButtonText: '断开');
     await box.setCoreEngine('singbox');
     await box.setServiceMode(VpnMode.vpn);
+    if (Platform.isAndroid) {
+      try {
+        _systemCaBundlePath =
+            await _vpnPermissionChannel.invokeMethod<String>(
+                  'systemCaBundlePath',
+                ) ??
+                '';
+      } on PlatformException {
+        _systemCaBundlePath = '';
+      }
+    }
   }
 
   Stream<dynamic> watchStatus() => box.watchStatus();
@@ -65,6 +77,7 @@ class VpnEngineService {
           mode: mode,
           geoDir: geoDir,
           transportProxyOnly: Platform.isAndroid,
+          systemCaBundlePath: _systemCaBundlePath,
         );
         return box
             .connectWithJson(json, name: node.name)
@@ -77,6 +90,8 @@ class VpnEngineService {
           mode: mode,
           geoDir: geoDir,
           transportProxyOnly: Platform.isAndroid,
+          systemCaBundlePath: _systemCaBundlePath,
+          protectedIpv6Transport: Platform.isAndroid,
         );
         return box
             .connectWithJson(json, name: node.name)
@@ -92,6 +107,7 @@ class VpnEngineService {
         mode: mode,
         geoDir: geoDir,
         transportProxyOnly: Platform.isAndroid,
+        systemCaBundlePath: _systemCaBundlePath,
       );
       return box
           .connectWithJson(routed, name: node.name)
@@ -153,6 +169,10 @@ class VpnEngineService {
                 node,
                 mode: '全局模式',
                 transportProxyOnly: Platform.isAndroid,
+                systemCaBundlePath: _systemCaBundlePath,
+                // Temporary latency probes run without the VPN-side protected
+                // SOCKS transport, so they must dial the Snell server directly.
+                protectedIpv6Transport: false,
               )
             : await box.generateConfig(node.connectionLink));
     if (raw.trim().isEmpty) return -1;
@@ -160,6 +180,7 @@ class VpnEngineService {
       raw,
       mode: '全局模式',
       transportProxyOnly: Platform.isAndroid,
+      systemCaBundlePath: _systemCaBundlePath,
     );
     final decoded = jsonDecode(config) as Map<String, dynamic>;
     final tag = (decoded['route'] as Map)['final'] as String;
@@ -180,6 +201,8 @@ class VpnEngineService {
         node,
         mode: '全局模式',
         transportProxyOnly: Platform.isAndroid,
+        systemCaBundlePath: _systemCaBundlePath,
+        protectedIpv6Transport: false,
       );
     }
     final raw = await box.generateConfig(node.connectionLink);
@@ -195,6 +218,7 @@ class VpnEngineService {
     required String mode,
     String geoDir = '',
     bool transportProxyOnly = false,
+    String systemCaBundlePath = '',
   }) async {
     final primaryRaw = await _rawSingBoxForNode(node);
     final preRaw = await _rawSingBoxForNode(preProxy);
@@ -204,6 +228,9 @@ class VpnEngineService {
       mode: mode,
       geoDir: geoDir,
       transportProxyOnly: transportProxyOnly || Platform.isAndroid,
+      systemCaBundlePath: systemCaBundlePath.isNotEmpty
+          ? systemCaBundlePath
+          : _systemCaBundlePath,
     );
   }
 
