@@ -46,9 +46,48 @@ class MainActivity : FlutterActivity() {
                     val dir = getExternalFilesDir(null) ?: filesDir
                     result.success(dir.absolutePath)
                 }
+                "systemCaBundlePath" -> {
+                    try {
+                        result.success(exportSystemCaBundle())
+                    } catch (e: Exception) {
+                        result.error("CA_EXPORT_FAILED", e.message, null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
+    }
+
+    private fun exportSystemCaBundle(): String {
+        val out = java.io.File(filesDir, "aurum-system-ca.pem")
+        val tmf = javax.net.ssl.TrustManagerFactory.getInstance(
+            javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm()
+        )
+        tmf.init(null as java.security.KeyStore?)
+        val trustManager = tmf.trustManagers
+            .filterIsInstance<javax.net.ssl.X509TrustManager>()
+            .firstOrNull()
+            ?: throw IllegalStateException("Android system X509 trust manager unavailable")
+
+        val pem = buildString {
+            for (certificate in trustManager.acceptedIssuers) {
+                append("-----BEGIN CERTIFICATE-----\n")
+                val encoded = android.util.Base64.encodeToString(
+                    certificate.encoded,
+                    android.util.Base64.NO_WRAP
+                )
+                encoded.chunked(64).forEach {
+                    append(it)
+                    append('\n')
+                }
+                append("-----END CERTIFICATE-----\n")
+            }
+        }
+        if (pem.isBlank()) {
+            throw IllegalStateException("Android system CA store is empty")
+        }
+        out.writeText(pem)
+        return out.absolutePath
     }
 
     override fun onDestroy() {
