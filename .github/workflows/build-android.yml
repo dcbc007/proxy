@@ -2,7 +2,7 @@ name: Build AurumProxy Android APK
 
 on:
   push:
-    branches: [ main, fix/hy2-runtime-tls-1.3.3 ]
+    branches: [ main, fix/hy2-bootstrap-dns-1.3.4 ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -115,7 +115,7 @@ jobs:
           grep -q "开始路由自检" lib/screens/logs_screen.dart
           grep -q "transportProxyOnly: Platform.isAndroid" lib/services/vpn_engine_service.dart
           grep -q "aurum-mode-smart" lib/services/singbox_config_router.dart
-          grep -q "root.remove('dns')" lib/services/singbox_config_router.dart
+          grep -q "dns-bootstrap" lib/services/singbox_config_router.dart
           grep -q "systemCaBundlePath" lib/services/vpn_engine_service.dart
           grep -q "node.protocol == ProxyProtocol.hysteria2" lib/services/vpn_engine_service.dart
           grep -q "_repairLegacyHy2Fields" lib/services/vpn_engine_service.dart
@@ -184,6 +184,7 @@ jobs:
           /tmp/sing-box-1.14.1-linux-amd64/sing-box check -c /tmp/aurum-single-core-global.json
           /tmp/sing-box-1.14.1-linux-amd64/sing-box check -c /tmp/aurum-single-core-direct.json
           python3 tool/smoke_test_singbox.py /tmp/sing-box-1.14.1-linux-amd64/sing-box
+          python3 tool/smoke_hy2_bootstrap.py /tmp/sing-box-1.14.1-linux-amd64/sing-box
 
       - name: Prepare pinned libXray source
         shell: bash
@@ -242,15 +243,16 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.3.3-arm64.apk
-          sha256sum dist/AurumProxy-1.3.3-arm64.apk > dist/AurumProxy-1.3.3-arm64.apk.sha256
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.3.4-arm64.apk
+          sha256sum dist/AurumProxy-1.3.4-arm64.apk > dist/AurumProxy-1.3.4-arm64.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AurumProxy-1.3.3-arm64
+          name: AurumProxy-1.3.4-arm64
           path: |
-            dist/AurumProxy-1.3.3-arm64.apk
-            dist/AurumProxy-1.3.3-arm64.apk.sha256
+            dist/AurumProxy-1.3.4-arm64.apk
+            dist/AurumProxy-1.3.4-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
+

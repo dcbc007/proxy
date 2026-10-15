@@ -28,7 +28,7 @@ class SingBoxConfigRouter {
         'listen_port': 10808,
       },
     ];
-    root['log'] = {'level': 'warn', 'timestamp': false};
+    root['log'] = {'level': 'warn', 'timestamp': false, 'disabled': false};
 
     _applyAndroidSystemCa(root, outbounds, systemCaBundlePath);
     root['outbounds'] = outbounds;
@@ -52,11 +52,31 @@ class SingBoxConfigRouter {
       }
       root['outbounds'] = outbounds;
 
-      // No sing-box DNS hijack here. DNS packets are ordinary traffic from
-      // the Xray TUN layer: DIRECT sends them directly, SMART/GLOBAL send
-      // them through the selected proxy according to the Xray bridge rules.
-      root.remove('dns');
+      // App DNS routing remains owned by Xray. The standalone Android core
+      // still needs bootstrap DNS to resolve the proxy SERVER before it can
+      // establish any tunnel. Go's system resolver can fall back to [::1]:53
+      // on Android, where no DNS listener exists. Use an IP-addressed resolver
+      // independent of the selected proxy to avoid a bootstrap dependency loop.
+      root['dns'] = {
+        'servers': [
+          {
+            'type': 'udp',
+            'tag': 'dns-bootstrap',
+            'server': '223.5.5.5',
+            'server_port': 53,
+          },
+        ],
+        'final': 'dns-bootstrap',
+        'strategy': 'prefer_ipv4',
+      };
+      for (final outbound in outbounds) {
+        final server = outbound['server']?.toString().trim() ?? '';
+        if (server.isNotEmpty && !_isIpLiteral(server)) {
+          outbound['domain_resolver'] = 'dns-bootstrap';
+        }
+      }
       root['route'] = {
+        'default_domain_resolver': 'dns-bootstrap',
         'rules': const <Map<String, dynamic>>[],
         'final': proxyTag,
       };
@@ -366,3 +386,4 @@ class SingBoxConfigRouter {
     return 'proxy';
   }
 }
+

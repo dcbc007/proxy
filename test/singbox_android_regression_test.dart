@@ -111,7 +111,13 @@ void main() {
       final route = config['route'] as Map<String, dynamic>;
       expect(route['final'], 'proxy');
       expect((route['rules'] as List), isEmpty);
-      expect(config['dns'], isNull);
+      expect(route['default_domain_resolver'], 'dns-bootstrap');
+      expect(config['dns']['final'], 'dns-bootstrap');
+      final dns = (config['dns']['servers'] as List).single as Map;
+      expect(dns['server'], '223.5.5.5');
+      expect(dns['detour'], isNull); // Cannot depend on the unconnected proxy.
+      expect(config['outbounds'][0]['domain_resolver'], 'dns-bootstrap');
+      expect(config['outbounds'][0]['tls'], outbound['tls']);
 
       final tags = (config['outbounds'] as List)
           .map((e) => (e as Map)['tag']?.toString())
@@ -277,3 +283,4 @@ void main() {
   });
 
 }
+
