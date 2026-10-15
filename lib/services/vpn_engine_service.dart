@@ -10,6 +10,7 @@ import 'singbox_config_builder.dart';
 import 'geo_asset_service.dart';
 import 'singbox_config_router.dart';
 import 'singbox_chain_config.dart';
+import 'qr_payload_parser.dart';
 
 class VpnEngineService {
   static const MethodChannel _vpnPermissionChannel = MethodChannel(
@@ -47,6 +48,8 @@ class VpnEngineService {
     String mode = '智能模式',
     ProxyNode? preProxy,
   }) async {
+    _repairLegacyHy2Fields(node);
+    if (preProxy != null) _repairLegacyHy2Fields(preProxy);
     if (!await ensureVpnPermission()) return false;
 
     if (mode == '智能模式') {
@@ -114,6 +117,64 @@ class VpnEngineService {
       return box
           .connectWithJson(routed, name: node.name)
           .timeout(const Duration(seconds: 15), onTimeout: () => false);
+    }
+  }
+
+  void _repairLegacyHy2Fields(ProxyNode node) {
+    if (node.protocol != ProxyProtocol.hysteria2) return;
+    final source = node.sourceLink.trim();
+    if (source.isEmpty ||
+        (!source.startsWith('hy2://') &&
+            !source.startsWith('hysteria2://'))) {
+      return;
+    }
+
+    try {
+      final parsed = QrPayloadParser.parse(source);
+      if (parsed.protocol != ProxyProtocol.hysteria2) return;
+
+      // Preserve values the user explicitly edited in the UI. Only repair
+      // fields that older Aurum versions failed to persist from the source.
+      if (node.sni.trim().isEmpty && parsed.sni.trim().isNotEmpty) {
+        node.sni = parsed.sni.trim();
+      }
+      if (node.alpn.trim().isEmpty && parsed.alpn.trim().isNotEmpty) {
+        node.alpn = parsed.alpn.trim();
+      }
+      if (node.hy2Obfs.trim().isEmpty && parsed.hy2Obfs.trim().isNotEmpty) {
+        node.hy2Obfs = parsed.hy2Obfs.trim();
+      }
+      if (node.hy2ObfsPassword.trim().isEmpty &&
+          parsed.hy2ObfsPassword.trim().isNotEmpty) {
+        node.hy2ObfsPassword = parsed.hy2ObfsPassword.trim();
+      }
+      if (node.hy2ServerPorts.trim().isEmpty &&
+          parsed.hy2ServerPorts.trim().isNotEmpty) {
+        node.hy2ServerPorts = parsed.hy2ServerPorts.trim();
+      }
+      if (node.hy2HopInterval.trim().isEmpty &&
+          parsed.hy2HopInterval.trim().isNotEmpty) {
+        node.hy2HopInterval = parsed.hy2HopInterval.trim();
+      }
+      if (node.hy2HopIntervalMax.trim().isEmpty &&
+          parsed.hy2HopIntervalMax.trim().isNotEmpty) {
+        node.hy2HopIntervalMax = parsed.hy2HopIntervalMax.trim();
+      }
+      if (node.hy2BbrProfile.trim().isEmpty &&
+          parsed.hy2BbrProfile.trim().isNotEmpty) {
+        node.hy2BbrProfile = parsed.hy2BbrProfile.trim();
+      }
+      if (node.hy2UpMbps <= 0 && parsed.hy2UpMbps > 0) {
+        node.hy2UpMbps = parsed.hy2UpMbps;
+      }
+      if (node.hy2DownMbps <= 0 && parsed.hy2DownMbps > 0) {
+        node.hy2DownMbps = parsed.hy2DownMbps;
+      }
+      // Do NOT restore tlsInsecure from the source link here: the current
+      // toggle in Aurum is authoritative, so the user can deliberately test
+      // strict certificate verification on an old imported node.
+    } catch (_) {
+      // Keep the current stored node if its legacy source link is malformed.
     }
   }
 
