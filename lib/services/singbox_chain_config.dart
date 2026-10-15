@@ -9,6 +9,7 @@ class SingBoxChainConfig {
     String mode = '智能模式',
     String geoDir = '',
     bool transportProxyOnly = false,
+    String systemCaBundlePath = '',
   }) {
     final primary = _firstProxyOutbound(primaryRaw, 'proxy');
     final preProxy = _firstProxyOutbound(preProxyRaw, 'preproxy');
@@ -37,6 +38,7 @@ class SingBoxChainConfig {
       mode: mode,
       geoDir: geoDir,
       transportProxyOnly: transportProxyOnly,
+      systemCaBundlePath: systemCaBundlePath,
     );
   }
 
