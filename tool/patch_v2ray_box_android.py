@@ -1435,3 +1435,114 @@ bs = bs.replace(
 
 bp.write_text(bs, encoding="utf-8")
 print("Added Xray-protected local SOCKS dialer on 127.0.0.1:10809 for IPv6 proxy transports.")
+
+
+# 1.3.3 runtime TLS diagnostics: forward important sing-box core lines into
+# Aurum's in-app service log, and expose the effective HY2 TLS parameters
+# without leaking credentials.
+sp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/utils/SingboxProcess.kt")
+ss = sp.read_text(encoding="utf-8")
+
+if 'var logSink: ((String) -> Unit)? = null' not in ss:
+    marker_133 = '''    @Volatile var isRunning: Boolean = false
+        private set
+'''
+    replacement_133 = '''    @Volatile var isRunning: Boolean = false
+        private set
+    @Volatile var logSink: ((String) -> Unit)? = null
+'''
+    if marker_133 not in ss:
+        raise SystemExit("1.3.3 SingboxProcess state marker missing")
+    ss = ss.replace(marker_133, replacement_133, 1)
+
+old_core_line_133 = '''                        Log.i("SingboxCore", line)
+'''
+new_core_line_133 = '''                        Log.i("SingboxCore", line)
+                        runCatching { logSink?.invoke(line) }
+'''
+if old_core_line_133 not in ss:
+    raise SystemExit("1.3.3 SingboxProcess output marker missing")
+ss = ss.replace(old_core_line_133, new_core_line_133, 1)
+sp.write_text(ss, encoding="utf-8")
+
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+start_marker_133 = '''        if (!SingboxProcess.start(service, singboxConfigPath)) {
+'''
+diag_133 = '''        SingboxProcess.logSink = { line ->
+            val lower = line.lowercase()
+            if (
+                Settings.debugMode ||
+                lower.contains("x509") ||
+                lower.contains("certificate") ||
+                lower.contains("tls") ||
+                lower.contains("handshake") ||
+                lower.contains("hysteria") ||
+                lower.contains("quic") ||
+                lower.contains("error") ||
+                lower.contains("failed")
+            ) {
+                mainHandler.post {
+                    emitServiceLog(
+                        "sing-box: " + line.takeLast(1600),
+                        force = true
+                    )
+                }
+            }
+        }
+
+        runCatching {
+            val root = com.google.gson.JsonParser
+                .parseString(File(singboxConfigPath).readText())
+                .asJsonObject
+            val outbounds = root.getAsJsonArray("outbounds")
+            var hy2: com.google.gson.JsonObject? = null
+            if (outbounds != null) {
+                for (entry in outbounds) {
+                    val obj = entry.asJsonObject
+                    if (obj.get("type")?.asString == "hysteria2") {
+                        hy2 = obj
+                        break
+                    }
+                }
+            }
+            if (hy2 != null) {
+                val tls = hy2!!.getAsJsonObject("tls")
+                val certificate = root.getAsJsonObject("certificate")
+                val server = hy2!!.get("server")?.asString ?: ""
+                val serverName = tls?.get("server_name")?.asString ?: ""
+                val insecure = tls?.get("insecure")?.asBoolean ?: false
+                val store = certificate?.get("store")?.asString ?: "system/default"
+                val caFiles = certificate?.getAsJsonArray("certificate_path")?.size() ?: 0
+                emitServiceLog(
+                    "HY2 TLS runtime: server=$server sni=" +
+                        (if (serverName.isBlank()) "<empty>" else serverName) +
+                        " insecure=$insecure caStore=$store caFiles=$caFiles",
+                    force = true
+                )
+            }
+        }.onFailure {
+            emitServiceLog(
+                "HY2 TLS runtime config inspection failed: ${it.message}",
+                force = true
+            )
+        }
+
+        if (!SingboxProcess.start(service, singboxConfigPath)) {
+'''
+if start_marker_133 not in bs:
+    raise SystemExit("1.3.3 startSingbox marker missing")
+bs = bs.replace(start_marker_133, diag_133, 1)
+
+# Stop forwarding once the process is stopped to avoid stale callbacks.
+bs = bs.replace(
+    '''            SingboxProcess.stop()
+''',
+    '''            SingboxProcess.stop()
+            SingboxProcess.logSink = null
+''',
+)
+
+bp.write_text(bs, encoding="utf-8")
+print("Added 1.3.3 HY2 runtime TLS diagnostics.")
