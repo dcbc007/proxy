@@ -1371,3 +1371,67 @@ vns = vns.replace(
 
 vpns.write_text(vns, encoding="utf-8")
 print("Hardened 1.3.0 generated Kotlin after compiler validation.")
+
+
+# 1.3.1 protected transport dialer for proxy server sockets that must bypass
+# the Android VPN. This is used for bare IPv6 Snell servers when no user
+# pre-proxy is configured. The local SOCKS inbound is owned by Xray, whose
+# outbound sockets are protected via VpnService.protect(fd).
+bp = Path("third_party/v2box/android/src/main/kotlin/com/example/v2ray_box/bg/BoxService.kt")
+bs = bp.read_text(encoding="utf-8")
+
+old_inbound_tail_131 = '''                        "sniffing" to mapOf(
+                            "enabled" to (routingMode == "SMART"),
+                            "destOverride" to listOf("http", "tls", "quic")
+                        )
+                    )
+                ),
+                "outbounds" to listOf(
+'''
+new_inbound_tail_131 = '''                        "sniffing" to mapOf(
+                            "enabled" to (routingMode == "SMART"),
+                            "destOverride" to listOf("http", "tls", "quic")
+                        )
+                    ),
+                    mapOf(
+                        "tag" to "core-transport",
+                        "listen" to "127.0.0.1",
+                        "port" to 10809,
+                        "protocol" to "socks",
+                        "settings" to mapOf(
+                            "auth" to "noauth",
+                            "udp" to true
+                        )
+                    )
+                ),
+                "outbounds" to listOf(
+'''
+if old_inbound_tail_131 not in bs:
+    raise SystemExit("1.3.1 Xray inbound tail not found")
+bs = bs.replace(old_inbound_tail_131, new_inbound_tail_131, 1)
+
+old_rules_head_131 = '''            val routingRules = mutableListOf<Map<String, Any>>()
+            when (routingMode) {
+'''
+new_rules_head_131 = '''            val routingRules = mutableListOf<Map<String, Any>>()
+            routingRules.add(
+                mapOf(
+                    "type" to "field",
+                    "inboundTag" to listOf("core-transport"),
+                    "outboundTag" to "direct"
+                )
+            )
+            when (routingMode) {
+'''
+if old_rules_head_131 not in bs:
+    raise SystemExit("1.3.1 routing rules head not found")
+bs = bs.replace(old_rules_head_131, new_rules_head_131, 1)
+
+bs = bs.replace(
+    'Android routing owner=Xray mode=$bridgeRoutingMode; sing-box=proxy-only; dns=',
+    'Android routing owner=Xray mode=$bridgeRoutingMode; protected-dialer=127.0.0.1:10809; sing-box=proxy-only; dns=',
+    1,
+)
+
+bp.write_text(bs, encoding="utf-8")
+print("Added Xray-protected local SOCKS dialer on 127.0.0.1:10809 for IPv6 proxy transports.")
