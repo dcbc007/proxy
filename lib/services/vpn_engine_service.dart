@@ -84,21 +84,23 @@ class VpnEngineService {
             .timeout(const Duration(seconds: 15), onTimeout: () => false);
       }
 
-      if (node.protocol == ProxyProtocol.snell) {
+      if (node.protocol == ProxyProtocol.snell ||
+          node.protocol == ProxyProtocol.hysteria2) {
         final json = SingBoxConfigBuilder.fromNode(
           node,
           mode: mode,
           geoDir: geoDir,
           transportProxyOnly: Platform.isAndroid,
           systemCaBundlePath: _systemCaBundlePath,
-          protectedIpv6Transport: Platform.isAndroid,
+          protectedIpv6Transport:
+              Platform.isAndroid && node.protocol == ProxyProtocol.snell,
         );
         return box
             .connectWithJson(json, name: node.name)
             .timeout(const Duration(seconds: 15), onTimeout: () => false);
       }
 
-      // Share links are parsed by sing-box. On Android the generated config
+      // Other share links are parsed by sing-box. On Android the generated config
       // is proxy-transport-only; Xray owns the TUN/direct/Smart decisions.
       final generated = await box.generateConfig(node.connectionLink);
       if (generated.trim().isEmpty) return false;
@@ -164,14 +166,15 @@ class VpnEngineService {
     await box.setCoreEngine('singbox');
     final raw = preProxy != null
         ? await _buildSingBoxChain(node, preProxy, mode: '全局模式')
-        : (node.protocol == ProxyProtocol.snell
+        : ((node.protocol == ProxyProtocol.snell ||
+                node.protocol == ProxyProtocol.hysteria2)
             ? SingBoxConfigBuilder.fromNode(
                 node,
                 mode: '全局模式',
                 transportProxyOnly: Platform.isAndroid,
                 systemCaBundlePath: _systemCaBundlePath,
                 // Temporary latency probes run without the VPN-side protected
-                // SOCKS transport, so they must dial the Snell server directly.
+                // SOCKS transport, so Snell must dial the server directly.
                 protectedIpv6Transport: false,
               )
             : await box.generateConfig(node.connectionLink));
@@ -196,7 +199,8 @@ class VpnEngineService {
   }
 
   Future<String> _rawSingBoxForNode(ProxyNode node) async {
-    if (node.protocol == ProxyProtocol.snell) {
+    if (node.protocol == ProxyProtocol.snell ||
+        node.protocol == ProxyProtocol.hysteria2) {
       return SingBoxConfigBuilder.fromNode(
         node,
         mode: '全局模式',
