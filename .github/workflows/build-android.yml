@@ -2,7 +2,7 @@ name: Build AurumProxy Android APK
 
 on:
   push:
-    branches: [ main, fix/hy2-strict-tls-1.3.2 ]
+    branches: [ main, fix/hy2-runtime-tls-1.3.3 ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -118,6 +118,10 @@ jobs:
           grep -q "root.remove('dns')" lib/services/singbox_config_router.dart
           grep -q "systemCaBundlePath" lib/services/vpn_engine_service.dart
           grep -q "node.protocol == ProxyProtocol.hysteria2" lib/services/vpn_engine_service.dart
+          grep -q "_repairLegacyHy2Fields" lib/services/vpn_engine_service.dart
+          grep -q "certificate_path" lib/services/singbox_config_router.dart
+          grep -q "HY2 TLS runtime:" tool/patch_v2ray_box_android.py
+          grep -q "logSink" tool/patch_v2ray_box_android.py
           grep -q "certificate_path" lib/services/singbox_config_router.dart
           grep -q "aurum-protected-direct" lib/services/singbox_config_builder.dart
           grep -q "systemCaBundlePath" platform_templates/android/MainActivity.kt
@@ -238,15 +242,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.3.2-arm64.apk
-          sha256sum dist/AurumProxy-1.3.2-arm64.apk > dist/AurumProxy-1.3.2-arm64.apk.sha256
+          cp build/app/outputs/flutter-apk/app-release.apk dist/AurumProxy-1.3.3-arm64.apk
+          sha256sum dist/AurumProxy-1.3.3-arm64.apk > dist/AurumProxy-1.3.3-arm64.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AurumProxy-1.3.2-arm64
+          name: AurumProxy-1.3.3-arm64
           path: |
-            dist/AurumProxy-1.3.2-arm64.apk
-            dist/AurumProxy-1.3.2-arm64.apk.sha256
+            dist/AurumProxy-1.3.3-arm64.apk
+            dist/AurumProxy-1.3.3-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
