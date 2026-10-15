@@ -155,9 +155,12 @@ void main() {
         ((secure['outbounds'] as List).first as Map)['tls'] as Map;
     expect(secureTls['insecure'], isNull);
     expect(secureTls['server_name'], 'hy.example.com');
+    expect(secureTls['certificate_path'], isNull);
+    final certificate = secure['certificate'] as Map;
+    expect(certificate['store'], 'system');
     expect(
-      secureTls['certificate_path'],
-      '/data/user/0/app/files/aurum-system-ca.pem',
+      certificate['certificate_path'],
+      ['/data/user/0/app/files/aurum-system-ca.pem'],
     );
 
     final insecure = jsonDecode(
@@ -187,6 +190,7 @@ void main() {
         ((insecure['outbounds'] as List).first as Map)['tls'] as Map;
     expect(insecureTls['insecure'], true);
     expect(insecureTls['certificate_path'], isNull);
+    expect((insecure['certificate'] as Map)['store'], 'system');
   });
 
   test('Bare IPv6 Snell uses Xray protected transport dialer on Android', () {
@@ -244,9 +248,11 @@ void main() {
     final tls = proxy['tls'] as Map;
     expect(tls['server_name'], 'hy2.example.com');
     expect(tls['insecure'], isNull);
+    expect(tls['certificate_path'], isNull);
+    expect((config['certificate'] as Map)['store'], 'system');
     expect(
-      tls['certificate_path'],
-      '/data/user/0/app/files/aurum-system-ca.pem',
+      (config['certificate'] as Map)['certificate_path'],
+      ['/data/user/0/app/files/aurum-system-ca.pem'],
     );
     expect(tls['alpn'], ['h3']);
   });
@@ -258,6 +264,16 @@ void main() {
       );
       expect(node.tlsInsecure, true, reason: key);
     }
+  });
+
+
+  test('Legacy HY2 source keeps peer alias available for runtime repair', () {
+    final node = QrPayloadParser.parse(
+      'hy2://pw@198.51.100.20:443?peer=legacy.example.com&skip-cert-verify=0#old',
+    );
+    expect(node.sni, 'legacy.example.com');
+    expect(node.tlsInsecure, false);
+    expect(node.sourceLink, isNotEmpty);
   });
 
 }
