@@ -125,4 +125,98 @@ void main() {
     }
   });
 
+
+  test('Android verified TLS uses exported system CA and preserves insecure nodes', () {
+    final secure = jsonDecode(
+      SingBoxConfigRouter.apply(
+        jsonEncode({
+          'inbounds': [
+            {'type': 'mixed', 'listen_port': 10808},
+          ],
+          'outbounds': [
+            {
+              'type': 'hysteria2',
+              'tag': 'proxy',
+              'server': 'hy.example.com',
+              'server_port': 443,
+              'password': 'pw',
+              'tls': {'enabled': true},
+            },
+          ],
+          'route': {'final': 'proxy'},
+        }),
+        mode: '全局模式',
+        transportProxyOnly: true,
+        systemCaBundlePath: '/data/user/0/app/files/aurum-system-ca.pem',
+      ),
+    ) as Map<String, dynamic>;
+    final secureTls =
+        ((secure['outbounds'] as List).first as Map)['tls'] as Map;
+    expect(secureTls['insecure'], isNull);
+    expect(secureTls['server_name'], 'hy.example.com');
+    expect(
+      secureTls['certificate_path'],
+      '/data/user/0/app/files/aurum-system-ca.pem',
+    );
+
+    final insecure = jsonDecode(
+      SingBoxConfigRouter.apply(
+        jsonEncode({
+          'inbounds': [
+            {'type': 'mixed', 'listen_port': 10808},
+          ],
+          'outbounds': [
+            {
+              'type': 'hysteria2',
+              'tag': 'proxy',
+              'server': 'hy.example.com',
+              'server_port': 443,
+              'password': 'pw',
+              'tls': {'enabled': true, 'insecure': true},
+            },
+          ],
+          'route': {'final': 'proxy'},
+        }),
+        mode: '全局模式',
+        transportProxyOnly: true,
+        systemCaBundlePath: '/data/user/0/app/files/aurum-system-ca.pem',
+      ),
+    ) as Map<String, dynamic>;
+    final insecureTls =
+        ((insecure['outbounds'] as List).first as Map)['tls'] as Map;
+    expect(insecureTls['insecure'], true);
+    expect(insecureTls['certificate_path'], isNull);
+  });
+
+  test('Bare IPv6 Snell uses Xray protected transport dialer on Android', () {
+    final node = ProxyNode(
+      id: 's6',
+      name: 'Snell IPv6',
+      protocol: ProxyProtocol.snell,
+      server: '2001:db8::1234',
+      port: 443,
+      password: 'test-password',
+    );
+    final config = jsonDecode(
+      SingBoxConfigBuilder.fromNode(
+        node,
+        mode: '全局模式',
+        transportProxyOnly: true,
+        protectedIpv6Transport: true,
+      ),
+    ) as Map<String, dynamic>;
+
+    final outbounds = (config['outbounds'] as List).cast<Map>();
+    final snell = outbounds.firstWhere((e) => e['tag'] == 'proxy');
+    expect(snell['detour'], 'aurum-protected-direct');
+
+    final protected = outbounds.firstWhere(
+      (e) => e['tag'] == 'aurum-protected-direct',
+    );
+    expect(protected['type'], 'socks');
+    expect(protected['server'], '127.0.0.1');
+    expect(protected['server_port'], 10809);
+    expect(protected['version'], '5');
+  });
+
 }
