@@ -30,7 +30,7 @@ class SingBoxConfigRouter {
     ];
     root['log'] = {'level': 'warn', 'timestamp': false};
 
-    _applyAndroidSystemCa(outbounds, systemCaBundlePath);
+    _applyAndroidSystemCa(root, outbounds, systemCaBundlePath);
     root['outbounds'] = outbounds;
 
     final proxyTag = _proxyTag(outbounds);
@@ -236,11 +236,21 @@ class SingBoxConfigRouter {
   }
 
   static void _applyAndroidSystemCa(
+    Map<String, dynamic> root,
     List<Map<String, dynamic>> outbounds,
     String systemCaBundlePath,
   ) {
     final caPath = systemCaBundlePath.trim();
-    if (caPath.isEmpty) return;
+
+    // Use sing-box's global certificate store instead of replacing RootCAs on
+    // every outbound. The global store augments the platform/system pool with
+    // the CA bundle exported by Android and is the intended 1.12+ mechanism.
+    if (caPath.isNotEmpty) {
+      root['certificate'] = {
+        'store': 'system',
+        'certificate_path': [caPath],
+      };
+    }
 
     for (final outbound in outbounds) {
       final rawTls = outbound['tls'];
@@ -252,22 +262,29 @@ class SingBoxConfigRouter {
       final reality = tls['reality'];
       if (reality is Map && reality['enabled'] == true) continue;
 
-      final hasPinnedOrCustomTrust =
-          tls['certificate'] != null ||
-          (tls['certificate_path']?.toString().trim().isNotEmpty ?? false) ||
-          tls['certificate_sha256'] != null ||
-          tls['certificate_public_key_sha256'] != null;
-      if (hasPinnedOrCustomTrust) continue;
-
+      // Do not inject certificate_path here: outbound certificate_path
+      // replaces the RootCA pool. Trust is configured globally above.
       final serverName = tls['server_name']?.toString().trim() ?? '';
       final server = outbound['server']?.toString().trim() ?? '';
-      if (serverName.isEmpty && server.isNotEmpty) {
-        tls['server_name'] = _stripIpv6Brackets(server);
+      if (serverName.isEmpty && server.isNotEmpty && !_isIpLiteral(server)) {
+        tls['server_name'] = server;
       }
 
-      tls['certificate_path'] = caPath;
       outbound['tls'] = tls;
     }
+  }
+
+  static bool _isIpLiteral(String value) {
+    var v = _stripIpv6Brackets(value.trim());
+    final zone = v.indexOf('%');
+    if (zone >= 0) v = v.substring(0, zone);
+    if (v.contains(':')) return true;
+    final parts = v.split('.');
+    return parts.length == 4 &&
+        parts.every((p) {
+          final n = int.tryParse(p);
+          return n != null && n >= 0 && n <= 255;
+        });
   }
 
   static String _stripIpv6Brackets(String value) {
