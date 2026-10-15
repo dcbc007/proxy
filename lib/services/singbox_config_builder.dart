@@ -12,6 +12,8 @@ class SingBoxConfigBuilder {
     String mode = '智能模式',
     String geoDir = '',
     bool transportProxyOnly = false,
+    String systemCaBundlePath = '',
+    bool protectedIpv6Transport = false,
   }) {
     final outbound = <String, dynamic>{
       'tag': 'proxy',
@@ -88,10 +90,11 @@ class SingBoxConfigBuilder {
         });
         break;
       case ProxyProtocol.snell:
-        // Desktop v0.7.x compatibility logic:
-        // v4 -> 4, plain v5 -> 4 (wire compatible), v6 -> 6.
-        // Snell v5 QUIC proxy mode is not implemented by sing-box.
+        // sing-box exposes Snell v4/v6. Surge Snell v5 uses the v4 wire mode
+        // for this core, matching the existing desktop compatibility path.
         final runtimeVersion = n.snellVersion == 6 ? 6 : 4;
+        final needsProtectedIpv6Dial =
+            protectedIpv6Transport && _isIpv6Literal(n.server);
         outbound.addAll({
           'type': 'snell',
           'psk': n.password,
@@ -105,6 +108,7 @@ class SingBoxConfigBuilder {
             'obfs_host': n.snellObfsHost,
           if (runtimeVersion == 6 && n.snellMode.isNotEmpty)
             'mode': n.snellMode,
+          if (needsProtectedIpv6Dial) 'detour': 'aurum-protected-direct',
         });
         break;
     }
@@ -178,6 +182,16 @@ class SingBoxConfigBuilder {
         ],
         'outbounds': [
           outbound,
+          if (n.protocol == ProxyProtocol.snell &&
+              protectedIpv6Transport &&
+              _isIpv6Literal(n.server))
+            {
+              'type': 'socks',
+              'tag': 'aurum-protected-direct',
+              'server': '127.0.0.1',
+              'server_port': 10809,
+              'version': '5',
+            },
           {'type': 'direct', 'tag': 'direct'},
         ],
         'route': route,
@@ -188,6 +202,7 @@ class SingBoxConfigBuilder {
       mode: mode,
       geoDir: geoDir,
       transportProxyOnly: transportProxyOnly,
+      systemCaBundlePath: systemCaBundlePath,
     );
   }
 
@@ -221,6 +236,17 @@ class SingBoxConfigBuilder {
           'headers': {'Host': n.host},
       };
     }
+  }
+
+  static bool _isIpv6Literal(String value) {
+    var host = value.trim();
+    if (host.startsWith('[') && host.endsWith(']')) {
+      host = host.substring(1, host.length - 1);
+    }
+    if (!host.contains(':')) return false;
+    final zone = host.indexOf('%');
+    if (zone >= 0) host = host.substring(0, zone);
+    return Uri.parse('http://[$host]/').host.isNotEmpty;
   }
 
   static List<String> _splitList(String value) => value
